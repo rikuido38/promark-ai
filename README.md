@@ -38,3 +38,36 @@ Using the brand foundation and campaign context, the AI generates personalized, 
 - **Speed to Market**: Drastically reduce the time it takes to go from campaign ideation to execution.
 - **Consistent Brand Identity**: Eliminate off-brand messaging through strict AI guardrails.
 - **Increased Engagement**: Drive higher conversion rates through hyper-personalized messaging scaling across segments.
+
+## Data Schema
+
+The platform relies on Supabase for its backend, utilizing the following core tables (mapped to TypeScript interfaces in `types/models.ts`):
+
+- **Project**: Represents a high-level marketing project.
+- **Campaign**: Represents a specific marketing campaign within a project.
+- **ProjectUser**: Maps which users have access to which projects.
+
+## Folder Structure
+
+The application is built with Next.js (App Router), organizing code as follows:
+
+```text
+.
+├── app/                  # Next.js App Router pages and API routes
+│   ├── login/            # Authentication pages
+│   ├── project/          # Project and campaign management pages
+│   ├── user/             # User settings and profile pages
+│   ├── layout.tsx        # Global application layout
+│   └── page.tsx          # Main dashboard page
+├── components/           # Reusable React components (UI and layout)
+│   ├── ui/               # Base visual components (e.g., shadcn/ui)
+│   ├── header.tsx        # Global header component
+│   ├── sidebar.tsx       # Global sidebar navigation
+│   └── metric-card.tsx   # Dashboard data display card
+├── lib/                  # Utility functions and shared logic (e.g., tailwind `cn`)
+├── public/               # Static assets (images, logos, icons)
+├── types/                # TypeScript type definitions and POJOs
+│   └── models.ts         # TypeScript interfaces for database schema
+└── utils/
+    └── supabase/         # Supabase client instantiation and auth helpers
+```

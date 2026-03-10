@@ -113,7 +113,7 @@ export async function Sidebar({ className }: SidebarProps) {
               className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
             >
               <BookText className="h-4 w-4" />
-              Brand Guidelines
+              Content Guidelines
             </Link>
             <Link
               href="#"

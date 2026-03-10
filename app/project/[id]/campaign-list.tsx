@@ -13,18 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type CampaignStatus = "todo" | "in_progress" | "completed";
-
-interface Campaign {
-  id: string;
-  name: string;
-  project_id: string;
-  start_date: string | null;
-  end_date: string | null;
-  status: CampaignStatus;
-  created_at: string;
-  updated_at: string;
-}
+import { Campaign, CampaignStatus } from "@/types/models";
 
 interface CampaignListProps {
   initialCampaigns: Campaign[];
