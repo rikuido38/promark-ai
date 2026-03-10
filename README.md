@@ -1,8 +1,8 @@
-# Agentic Marketing Platform
+# v
 
 ## Overview
 
-The Agentic Marketing Platform is an AI-driven solution designed to simplify, automate, and accelerate the creation of highly targeted marketing content for product campaigns. By combining deep customer insights with strict brand guardrails, the platform empowers marketing teams to deploy multi-channel campaigns with unprecedented speed and scale.
+Promark AI is an AI-driven solution designed to simplify, automate, and accelerate the creation of highly targeted marketing content for product campaigns. By combining deep customer insights with strict brand guardrails, the platform empowers marketing teams to deploy multi-channel campaigns with unprecedented speed and scale.
 
 ## Core Mechanics & Workflow
 
