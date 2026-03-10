@@ -71,3 +71,7 @@ The application is built with Next.js (App Router), organizing code as follows:
 └── utils/
     └── supabase/         # Supabase client instantiation and auth helpers
 ```
+
+## Documentation
+
+- [Architecture design](docs/architecture.md)

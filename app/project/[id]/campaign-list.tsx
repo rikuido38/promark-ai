@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -8,8 +9,6 @@ import {
   MoreHorizontal,
   Calendar,
   MessageSquare,
-  Check,
-  GripVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -147,39 +146,22 @@ function CampaignSection({
 
       <div className="space-y-3">
         {campaigns.map((campaign) => (
-          <div
+          <Link
+            href={`/campaign/${campaign.id}`}
             key={campaign.id}
-            className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all hover:border-slate-300"
+            className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all hover:border-slate-300 cursor-pointer block"
           >
-            <div className="flex items-center gap-4">
-              <div className="cursor-grab opacity-40 hover:opacity-100 transition-opacity">
-                <GripVertical className="h-4 w-4 text-slate-400" />
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div
-                  className={cn(
-                    "flex items-center justify-center w-5 h-5 rounded-md border",
-                    campaign.status === "completed"
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "bg-transparent border-slate-300 group-hover:border-blue-400",
-                  )}
-                >
-                  {campaign.status === "completed" && (
-                    <Check className="h-3.5 w-3.5" />
-                  )}
-                </div>
-                <span
-                  className={cn(
-                    "font-medium",
-                    campaign.status === "completed"
-                      ? "text-slate-500 line-through"
-                      : "text-slate-700",
-                  )}
-                >
-                  {campaign.name}
-                </span>
-              </div>
+            <div className="flex items-center gap-3">
+              <span
+                className={cn(
+                  "font-medium transition-colors",
+                  campaign.status === "completed"
+                    ? "text-slate-500 line-through"
+                    : "text-slate-800 group-hover:text-blue-600",
+                )}
+              >
+                {campaign.name}
+              </span>
             </div>
 
             <div className="flex items-center gap-6 mt-4 sm:mt-0 pl-11 sm:pl-0">
@@ -205,7 +187,7 @@ function CampaignSection({
                 <MoreHorizontal className="h-5 w-5" />
               </button>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>
