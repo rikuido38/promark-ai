@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MetricCard } from "@/components/metric-card";
+import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import {
@@ -43,10 +44,10 @@ export default async function Home() {
     if (campaignsData) {
       totalCampaigns = campaignsData.length;
       inProgressCampaigns = campaignsData.filter(
-        (c) => c.status === "in_progress"
+        (c) => c.status === "in_progress",
       ).length;
       completedCampaigns = campaignsData.filter(
-        (c) => c.status === "completed"
+        (c) => c.status === "completed",
       ).length;
     }
   }
@@ -57,7 +58,7 @@ export default async function Home() {
       <div className="flex flex-col flex-1 overflow-hidden bg-slate-50/50">
         <Header />
 
-        <main className="flex-1 overflow-y-auto p-8 relative">
+        <MainAssistantWrapper className="flex-1 overflow-y-auto p-8 relative">
           <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex items-center justify-between">
               <div>
@@ -67,10 +68,6 @@ export default async function Home() {
                 <p className="text-sm text-muted-foreground mt-1">
                   Monitor your projects and campaigns performance
                 </p>
-              </div>
-              <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-md text-sm font-medium border border-emerald-100">
-                <CheckCircle2 className="h-4 w-4" />
-                All systems operational
               </div>
             </div>
 
@@ -109,7 +106,7 @@ export default async function Home() {
               />
             </div>
           </div>
-        </main>
+        </MainAssistantWrapper>
       </div>
     </div>
   );

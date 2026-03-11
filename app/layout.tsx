@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Public_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
+import { AIAssistantProvider } from "@/components/ai-assistant-provider";
+import { getOrganization } from "./brand/actions";
 
 const publicSans = Public_Sans({
   variable: "--font-public-sans",
@@ -17,17 +20,25 @@ export const metadata: Metadata = {
   description: "AI-driven solution for targeted marketing content",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const org = await getOrganization();
+
   return (
     <html lang="en">
       <body
         className={`${publicSans.variable} ${geistMono.variable} antialiased font-sans`}
       >
-        {children}
+        <AIAssistantProvider
+          assistantName={org?.assistant_name}
+          avatarUrl={org?.avatar_url}
+        >
+          {children}
+        </AIAssistantProvider>
+        <Toaster />
       </body>
     </html>
   );

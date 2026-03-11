@@ -2,7 +2,9 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { CampaignSidebar } from "@/components/campaign-sidebar";
 import { Header } from "@/components/header";
+import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import CampaignWorkspace from "./campaign-workspace";
+import { getOrganization } from "@/app/brand/actions";
 
 export default async function CampaignPage(props: {
   params: Promise<{ id: string }>;
@@ -30,15 +32,21 @@ export default async function CampaignPage(props: {
     return <div>Campaign not found</div>;
   }
 
+  const org = await getOrganization();
+
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen w-full overflow-hidden bg-white">
       <CampaignSidebar campaign={campaign} />
-      <div className="flex flex-col flex-1 overflow-hidden bg-slate-50/50">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden bg-slate-50/50">
         <Header />
         
-        <main className="flex-1 overflow-hidden relative flex">
-          <CampaignWorkspace campaign={campaign} />
-        </main>
+        <MainAssistantWrapper className="flex-1 overflow-hidden relative flex">
+          <CampaignWorkspace 
+            campaign={campaign} 
+            assistantName={org?.assistant_name || undefined}
+            avatarUrl={org?.avatar_url || null}
+          />
+        </MainAssistantWrapper>
       </div>
     </div>
   );

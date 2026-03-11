@@ -2,7 +2,7 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import CampaignList from "./campaign-list";
 import { Sidebar } from "@/components/sidebar";
-import { Header } from "@/components/header";
+import { Header } from "@/components/header";import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 
 export default async function ProjectPage(props: {
   params: Promise<{ id: string }>;
@@ -56,11 +56,13 @@ export default async function ProjectPage(props: {
       <div className="flex flex-col flex-1 overflow-hidden bg-slate-50/50">
         <Header />
 
-        <main className="flex-1 overflow-y-auto p-8 relative">
+        <MainAssistantWrapper className="flex-1 overflow-y-auto p-8 relative">
           <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+                <h1 className="text-3xl font-bold tracking-tight">
+                  {project.name}
+                </h1>
                 <p className="text-sm text-muted-foreground mt-2">
                   Manage your campaigns for this project.
                 </p>
@@ -69,7 +71,7 @@ export default async function ProjectPage(props: {
 
             <CampaignList initialCampaigns={typedCampaigns} />
           </div>
-        </main>
+        </MainAssistantWrapper>
       </div>
     </div>
   );

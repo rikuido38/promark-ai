@@ -23,3 +23,22 @@ export interface ProjectUser {
   user_id: string;
   created_at: string | null;
 }
+
+export interface Organization {
+  id: string;
+  name: string;
+  assistant_name?: string | null;
+  avatar_url?: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface OrgSetting {
+  id: string;
+  org_id: string;
+  key: string;
+  value: unknown; // Storing as JSONB
+  created_at: string | null;
+  updated_at: string | null;
+}
+

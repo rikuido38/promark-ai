@@ -9,7 +9,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { BotMessageSquare } from "lucide-react";
 import Image from "next/image";
 
 export default async function LoginPage(props: {
@@ -29,7 +28,8 @@ export default async function LoginPage(props: {
             className="object-contain"
           />
           <p className="mt-2 text-center text-md text-muted-foreground">
-            Where deep insight meets instant execution
+            Accelerate personalized digital marketing with your AI campaign
+            assistant
           </p>
         </div>
 
