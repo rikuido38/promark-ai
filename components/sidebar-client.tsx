@@ -13,6 +13,7 @@ import {
   Megaphone,
   ImageIcon,
   Video,
+  Blocks,
 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
@@ -43,6 +44,7 @@ const NAV_LINKS = [
 
 const SETTINGS_LINKS = [
   { href: "/settings/ai-assistant", icon: Settings, label: "AI Assistant" },
+  { href: "/settings/integrations", icon: Blocks, label: "Integrations" },
 ];
 
 type SidebarClientProps = {

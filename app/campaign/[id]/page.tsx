@@ -5,6 +5,7 @@ import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import CampaignWorkspace from "./campaign-workspace";
 import { getOrganization } from "@/app/brand/actions";
+import { TABLES } from "@/utils/supabase/constant";
 
 export default async function CampaignPage(props: {
   params: Promise<{ id: string }>;
@@ -23,7 +24,7 @@ export default async function CampaignPage(props: {
 
   // Fetch campaign details
   const { data: campaign, error: campaignError } = await supabase
-    .from("campaigns")
+    .from(TABLES.CAMPAIGNS)
     .select("*, projects(name)")
     .eq("id", campaignId)
     .single();

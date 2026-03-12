@@ -4,6 +4,7 @@ import { MetricCard } from "@/components/metric-card";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
+import { TABLES } from "@/utils/supabase/constant";
 import {
   Briefcase,
   ListTodo,
@@ -24,9 +25,9 @@ export default async function Home() {
 
   // Fetch user's specific projects
   const { data: projectsData } = await supabase
-    .from("projects")
-    .select("id, project_users!inner(user_id)")
-    .eq("project_users.user_id", user.id);
+    .from(TABLES.PROJECTS)
+    .select(`id, ${TABLES.PROJECT_USERS}!inner(user_id)`)
+    .eq(`${TABLES.PROJECT_USERS}.user_id`, user.id);
 
   const totalProjects = projectsData?.length || 0;
   const projectIds = projectsData?.map((p) => p.id) || [];
@@ -37,7 +38,7 @@ export default async function Home() {
 
   if (projectIds.length > 0) {
     const { data: campaignsData } = await supabase
-      .from("campaigns")
+      .from(TABLES.CAMPAIGNS)
       .select("status")
       .in("project_id", projectIds);
 

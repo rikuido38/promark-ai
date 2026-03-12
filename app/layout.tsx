@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AIAssistantProvider } from "@/components/ai-assistant-provider";
 import { getOrganization } from "./brand/actions";
+import { getConnectedUserTools } from "./settings/integrations/actions";
 
 const publicSans = Public_Sans({
   variable: "--font-public-sans",
@@ -25,7 +26,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const org = await getOrganization();
+  const [org, connectedTools] = await Promise.all([
+    getOrganization(),
+    getConnectedUserTools(),
+  ]);
 
   return (
     <html lang="en">
@@ -35,6 +39,7 @@ export default async function RootLayout({
         <AIAssistantProvider
           assistantName={org?.assistant_name}
           avatarUrl={org?.avatar_url}
+          connectedTools={connectedTools}
         >
           {children}
         </AIAssistantProvider>

@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import { BrandVisualSettings } from "@/types/settings";
-import { saveBrandVisualSettings } from "../actions";
+import { saveBrandVisualSettings, uploadLogoToStorage } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { ImageDropzone } from "@/components/ui/image-dropzone";
-import { uploadLogoToStorage } from "../actions";
 import { Plus, X } from "lucide-react";
 
 export function BrandVisualForm({

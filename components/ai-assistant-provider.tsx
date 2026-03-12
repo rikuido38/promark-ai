@@ -1,8 +1,10 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useMemo, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { GlobalAssistantFAB } from "./global-assistant-fab";
+import type { ConnectedTool } from "@/types/models";
+
 
 type AIAssistantContextType = {
   isOpen: boolean;
@@ -10,6 +12,7 @@ type AIAssistantContextType = {
   chatKey: string;
   assistantName: string | null;
   avatarUrl: string | null;
+  connectedTools: ConnectedTool[];
 };
 
 const AIAssistantContext = createContext<AIAssistantContextType | undefined>(undefined);
@@ -18,10 +21,12 @@ export function AIAssistantProvider({
   children,
   assistantName,
   avatarUrl,
+  connectedTools = [],
 }: {
   children: React.ReactNode;
   assistantName?: string | null;
   avatarUrl?: string | null;
+  connectedTools?: ConnectedTool[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
@@ -35,15 +40,21 @@ export function AIAssistantProvider({
   const HIDDEN_PATHS = ["/project"];
   const shouldShowFAB = !HIDDEN_PATHS.some((path) => pathname.startsWith(path));
 
+  const contextValue = useMemo(
+    () => ({
+      isOpen,
+      setIsOpen,
+      chatKey: pathname,
+      assistantName: assistantName || null,
+      avatarUrl: avatarUrl || null,
+      connectedTools,
+    }),
+    [isOpen, pathname, assistantName, avatarUrl, connectedTools], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   return (
-    <AIAssistantContext.Provider 
-      value={{ 
-        isOpen, 
-        setIsOpen, 
-        chatKey: pathname,
-        assistantName: assistantName || null,
-        avatarUrl: avatarUrl || null
-      }}
+    <AIAssistantContext.Provider
+      value={contextValue}
     >
       {children}
       {shouldShowFAB && (

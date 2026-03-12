@@ -2,7 +2,9 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import CampaignList from "./campaign-list";
 import { Sidebar } from "@/components/sidebar";
-import { Header } from "@/components/header";import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
+import { Header } from "@/components/header";
+import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
+import { TABLES } from "@/utils/supabase/constant";
 
 export default async function ProjectPage(props: {
   params: Promise<{ id: string }>;
@@ -21,7 +23,7 @@ export default async function ProjectPage(props: {
 
   // Fetch project details
   const { data: project, error: projectError } = await supabase
-    .from("projects")
+    .from(TABLES.PROJECTS)
     .select("*")
     .eq("id", projectId)
     .single();
@@ -32,7 +34,7 @@ export default async function ProjectPage(props: {
 
   // Fetch campaigns for this project
   const { data: campaigns, error: campaignsError } = await supabase
-    .from("campaigns")
+    .from(TABLES.CAMPAIGNS)
     .select("*")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });

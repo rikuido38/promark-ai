@@ -3,6 +3,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
+import { TABLES } from "@/utils/supabase/constant";
 
 export async function saveAssistantName(name: string, avatar_url: string | null) {
   const supabase = await createClient();
@@ -11,7 +12,7 @@ export async function saveAssistantName(name: string, avatar_url: string | null)
   if (!userData?.user) throw new Error("Unauthorized");
 
   const { error } = await supabase
-    .from("organizations")
+    .from(TABLES.ORGANIZATIONS)
     .update({ assistant_name: name, avatar_url })
     .eq("id", DEFAULT_ORG_ID);
 

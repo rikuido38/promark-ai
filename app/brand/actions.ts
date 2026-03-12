@@ -5,6 +5,7 @@ import { BrandVisualSettings } from "@/types/settings";
 import { Organization } from "@/types/models";
 import { revalidatePath } from "next/cache";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
+import { TABLES } from "@/utils/supabase/constant";
 
 export async function getOrganization(): Promise<Organization | null> {
   const supabase = await createClient();
@@ -12,7 +13,7 @@ export async function getOrganization(): Promise<Organization | null> {
   if (!userData?.user) return null;
 
   const { data, error } = await supabase
-    .from("organizations")
+    .from(TABLES.ORGANIZATIONS)
     .select("*")
     .eq("id", DEFAULT_ORG_ID)
     .single();
@@ -43,7 +44,7 @@ export async function getBrandVisualSettings(): Promise<BrandVisualSettings | nu
   if (!userData?.user) return null;
 
   const { data, error } = await supabase
-    .from("org_settings")
+    .from(TABLES.ORGANIZATION_SETTINGS)
     .select("value")
     .eq("org_id", DEFAULT_ORG_ID)
     .eq("key", "brand_visual")
@@ -77,7 +78,7 @@ export async function saveBrandVisualSettings(settings: BrandVisualSettings) {
   const { data: userData } = await supabase.auth.getUser();
   if (!userData?.user) throw new Error("Unauthorized");
 
-  const { error } = await supabase.from("org_settings").upsert(
+  const { error } = await supabase.from(TABLES.ORGANIZATION_SETTINGS).upsert(
     {
       org_id: DEFAULT_ORG_ID,
       key: "brand_visual",

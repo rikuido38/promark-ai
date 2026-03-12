@@ -15,7 +15,7 @@ export function MainAssistantWrapper({
   children: React.ReactNode;
   className?: string;
 }) {
-  const { isOpen, setIsOpen, chatKey, assistantName, avatarUrl } =
+  const { isOpen, setIsOpen, chatKey, assistantName, avatarUrl, connectedTools } =
     useAIAssistant();
 
   // If chat is entirely disabled for this path, we could conditionally
@@ -41,6 +41,7 @@ export function MainAssistantWrapper({
                   systemMessage="Hi! I can help you with your marketing campaigns. How can I assist you today?"
                   avatarUrl={avatarUrl}
                   onClose={() => setIsOpen(false)}
+                  connectedTools={connectedTools}
                 />
               </div>
             </div>
