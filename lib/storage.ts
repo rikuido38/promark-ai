@@ -31,9 +31,74 @@ function collectPaths(value: unknown): string[] {
   return [];
 }
 
+// ── Path normaliser ───────────────────────────────────────────────────────────
+// Strips a Supabase signed/public storage URL back to its bare path so we
+// never persist a time-limited token or full URL in the database.
+
+/**
+ * Given a Supabase storage URL (signed, public, or authenticated) and the
+ * bucket name, returns the bare storage path (e.g. `default/images/logo.png`).
+ * Returns the original value unchanged if it is already a plain path or an
+ * unrecognised URL, making it safe to call unconditionally before any DB write.
+ */
+export function normaliseBucketPath(url: string, bucket: string): string {
+  const path = extractStoragePath(url, bucket);
+  return path ?? url;
+}
+
+function extractStoragePath(url: string, bucket: string): string | null {
+  try {
+    const u = new URL(url);
+    for (const prefix of [
+      `/storage/v1/object/sign/${bucket}/`,
+      `/storage/v1/object/public/${bucket}/`,
+      `/storage/v1/object/authenticated/${bucket}/`,
+    ]) {
+      if (u.pathname.startsWith(prefix)) {
+        return u.pathname.slice(prefix.length);
+      }
+    }
+  } catch {
+    // not a valid URL – ignore
+  }
+  return null;
+}
+
 // ── Deep resolver ─────────────────────────────────────────────────────────────
 // Walks the value tree. When a Media node is found with a temp/ url, moves the
 // file to its final path and returns a new Media with the updated url.
+
+async function resolveMediaNode(
+  supabase: SupabaseClient,
+  value: Media,
+  bucket: string,
+  destDir: string,
+): Promise<Media> {
+  if (!value.url) return value;
+
+  // Signed / public Supabase URL — strip back to the bare storage path
+  if (value.url.startsWith("http")) {
+    const path = extractStoragePath(value.url, bucket);
+    return path ? { ...value, url: path } : value;
+  }
+
+  // Already a final storage path (not temp) — leave as-is
+  if (!value.url.startsWith("temp/")) {
+    return value;
+  }
+
+  const filename = value.url.split("/").at(-1) ?? "file";
+  const ext = filename.split(".").at(-1) ?? "bin";
+  const uuid = filename.split(".")[0];
+  const finalPath = `${destDir}/${uuid}.${ext}`;
+
+  const { error } = await supabase.storage.from(bucket).move(value.url, finalPath);
+  if (error) {
+    throw new Error(`Storage move failed: ${value.url} → ${finalPath}: ${error.message}`);
+  }
+
+  return { ...value, url: finalPath };
+}
 
 async function resolveNode<T>(
   supabase: SupabaseClient,
@@ -42,22 +107,7 @@ async function resolveNode<T>(
   destDir: string,
 ): Promise<T> {
   if (isMedia(value)) {
-    // External or already-final path — leave as-is
-    if (!value.url || value.url.startsWith("http") || !value.url.startsWith("temp/")) {
-      return value;
-    }
-
-    const filename = value.url.split("/").at(-1) ?? "file";
-    const ext = filename.split(".").at(-1) ?? "bin";
-    const uuid = filename.split(".")[0];
-    const finalPath = `${destDir}/${uuid}.${ext}`;
-
-    const { error } = await supabase.storage.from(bucket).move(value.url, finalPath);
-    if (error) {
-      throw new Error(`Storage move failed: ${value.url} → ${finalPath}: ${error.message}`);
-    }
-
-    return { ...value, url: finalPath } as T;
+    return resolveMediaNode(supabase, value, bucket, destDir) as Promise<T>;
   }
 
   if (Array.isArray(value)) {

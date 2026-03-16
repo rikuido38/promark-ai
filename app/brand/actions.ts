@@ -6,7 +6,7 @@ import { Media, Organization } from "@/types/models";
 import { revalidatePath } from "next/cache";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
 import { TABLES } from "@/utils/supabase/constant";
-import { resolveMediaInValue } from "@/lib/storage";
+import { resolveMediaInValue, normaliseBucketPath } from "@/lib/storage";
 
 export async function getOrganization(): Promise<Organization | null> {
   const supabase = await createClient();
@@ -79,11 +79,29 @@ export async function saveBrandVisualSettings(settings: BrandVisualSettings) {
   const { data: userData } = await supabase.auth.getUser();
   if (!userData?.user) throw new Error("Unauthorized");
 
+  // Always persist the bare storage path — never a signed/public URL
+  const newLogoPath = settings.logo_url
+    ? normaliseBucketPath(settings.logo_url, SUPABASE_BUCKET_NAME)
+    : settings.logo_url;
+  const toSave: BrandVisualSettings = { ...settings, logo_url: newLogoPath };
+
+  // Delete the old logo file if it has been replaced
+  const { data: existing } = await supabase
+    .from(TABLES.ORGANIZATION_SETTINGS)
+    .select("value")
+    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("key", "brand_master")
+    .maybeSingle();
+  const oldLogoPath = (existing?.value as BrandVisualSettings | undefined)?.logo_url;
+  if (oldLogoPath && oldLogoPath !== newLogoPath && !oldLogoPath.startsWith("http")) {
+    await supabase.storage.from(SUPABASE_BUCKET_NAME).remove([oldLogoPath]);
+  }
+
   const { error } = await supabase.from(TABLES.ORGANIZATION_SETTINGS).upsert(
     {
       org_id: DEFAULT_ORG_ID,
       key: "brand_master",
-      value: settings,
+      value: toSave,
     },
     { onConflict: "org_id, key" },
   );
@@ -106,26 +124,13 @@ export async function uploadLogoToStorage(formData: FormData): Promise<string> {
   const file = formData.get("file") as File;
   if (!file) throw new Error("No file provided");
 
-  const fileExt = file.name.split(".").pop();
-  const filePath = `${DEFAULT_ORG_ID}/brand/images/logo.${fileExt}`;
-
-  // Clean up any existing logo files with different extensions
-  const { data: existingFiles } = await supabase.storage
-    .from(SUPABASE_BUCKET_NAME)
-    .list(`${DEFAULT_ORG_ID}/brand/images`, {
-      search: "logo.",
-    });
-
-  if (existingFiles && existingFiles.length > 0) {
-    const filesToRemove = existingFiles.map(
-      (f) => `${DEFAULT_ORG_ID}/brand/images/${f.name}`,
-    );
-    await supabase.storage.from(SUPABASE_BUCKET_NAME).remove(filesToRemove);
-  }
+  const uuid = crypto.randomUUID();
+  const fileExt = (file.name.split(".").pop() ?? "png").toLowerCase();
+  const filePath = `${DEFAULT_ORG_ID}/brands/${uuid}.${fileExt}`;
 
   const { error } = await supabase.storage
     .from(SUPABASE_BUCKET_NAME)
-    .upload(filePath, file, { upsert: true });
+    .upload(filePath, file, { upsert: false });
 
   if (error) {
     console.error("Upload error", error);
@@ -272,7 +277,7 @@ export async function saveIllustrationSettings(
     oldSettings,
     settings,
     SUPABASE_BUCKET_NAME,
-    `${DEFAULT_ORG_ID}/illustrations`,
+    `${DEFAULT_ORG_ID}/brands`,
   );
 
   const { error } = await supabase
