@@ -1,5 +1,15 @@
 export type CampaignStatus = "todo" | "in_progress" | "completed";
 
+/**
+ * Represents a media file. `url` is a bare Supabase storage path (no scheme)
+ * when the asset lives in our bucket, or a full URL (starting with http/https)
+ * when pointing to an external resource.
+ */
+export interface Media {
+  filename: string;
+  url: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -56,6 +66,7 @@ export interface Integration {
   slug: string;
   description: string | null;
   logo_url: string | null;
+  mcp_server_url: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

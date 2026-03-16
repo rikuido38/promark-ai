@@ -1,11 +1,12 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { BrandVisualSettings } from "@/types/settings";
-import { Organization } from "@/types/models";
+import { BrandVisualSettings, IllustrationSettings } from "@/types/settings";
+import { Media, Organization } from "@/types/models";
 import { revalidatePath } from "next/cache";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
 import { TABLES } from "@/utils/supabase/constant";
+import { resolveMediaInValue } from "@/lib/storage";
 
 export async function getOrganization(): Promise<Organization | null> {
   const supabase = await createClient();
@@ -47,7 +48,7 @@ export async function getBrandVisualSettings(): Promise<BrandVisualSettings | nu
     .from(TABLES.ORGANIZATION_SETTINGS)
     .select("value")
     .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_visual")
+    .eq("key", "brand_master")
     .maybeSingle();
 
   if (error || !data) {
@@ -81,7 +82,7 @@ export async function saveBrandVisualSettings(settings: BrandVisualSettings) {
   const { error } = await supabase.from(TABLES.ORGANIZATION_SETTINGS).upsert(
     {
       org_id: DEFAULT_ORG_ID,
-      key: "brand_visual",
+      key: "brand_master",
       value: settings,
     },
     { onConflict: "org_id, key" },
@@ -92,7 +93,7 @@ export async function saveBrandVisualSettings(settings: BrandVisualSettings) {
     throw new Error("Failed to save brand visuals");
   }
 
-  revalidatePath(`/brand/brand-visual`);
+  revalidatePath(`/brand/brand-dna`);
   return { success: true };
 }
 
@@ -145,4 +146,146 @@ export async function uploadLogoToStorage(formData: FormData): Promise<string> {
     signedUrl: signedUrlData.signedUrl,
     path: filePath,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Illustrations
+// ---------------------------------------------------------------------------
+
+export async function uploadIllustrationToTemp(
+  formData: FormData,
+): Promise<string> {
+  const supabase = await createClient();
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) throw new Error("Unauthorized");
+
+  const file = formData.get("file") as File;
+  if (!file) throw new Error("No file provided");
+
+  const uuid = crypto.randomUUID();
+  const fileExt = (file.name.split(".").pop() ?? "jpg").toLowerCase();
+  const filePath = `temp/${DEFAULT_ORG_ID}/${userData.user.id}/${uuid}.${fileExt}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(SUPABASE_BUCKET_NAME)
+    .upload(filePath, file, { upsert: false });
+
+  if (uploadError) {
+    console.error("Illustration temp upload error", uploadError);
+    throw new Error("Failed to upload illustration");
+  }
+
+  const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+    .from(SUPABASE_BUCKET_NAME)
+    .createSignedUrl(filePath, 60 * 60);
+
+  if (signedUrlError || !signedUrlData) {
+    throw new Error("Failed to generate signed url");
+  }
+
+  return JSON.stringify({
+    signedUrl: signedUrlData.signedUrl,
+    path: filePath,
+    uuid,
+    ext: fileExt,
+    filename: file.name,
+  });
+}
+
+export async function getIllustrationSettings(): Promise<IllustrationSettings | null> {
+  const supabase = await createClient();
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) return null;
+
+  const { data, error } = await supabase
+    .from(TABLES.ORGANIZATION_SETTINGS)
+    .select("value")
+    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("key", "brand_illustration")
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  const settings = data.value as IllustrationSettings;
+
+  // Resolve signed URLs for every stored media path
+  const resolveMedia = async (m: Media): Promise<Media> => {
+    if (!m.url || m.url.startsWith("http")) return m;
+    const { data: sd } = await supabase.storage
+      .from(SUPABASE_BUCKET_NAME)
+      .createSignedUrl(m.url, 60 * 60);
+    return { ...m, url: sd?.signedUrl ?? m.url };
+  };
+
+  settings.style_samples = await Promise.all(
+    (settings.style_samples ?? []).map(resolveMedia),
+  );
+
+  settings.colour_palette = {
+    ...settings.colour_palette,
+    sample_images: await Promise.all(
+      (settings.colour_palette?.sample_images ?? []).map(resolveMedia),
+    ),
+  };
+
+  settings.usages = await Promise.all(
+    (settings.usages ?? []).map(async (u) => ({
+      ...u,
+      sample: u.sample ? await resolveMedia(u.sample) : null,
+    })),
+  );
+
+  return settings;
+}
+
+// Fetches the raw persisted IllustrationSettings (storage paths, not signed URLs).
+// Used by saveIllustrationSettings to diff old vs new and detect orphaned files.
+async function getRawIllustrationSettings(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<IllustrationSettings | null> {
+  const { data, error } = await supabase
+    .from(TABLES.ORGANIZATION_SETTINGS)
+    .select("value")
+    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("key", "brand_illustration")
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.value as IllustrationSettings;
+}
+
+export async function saveIllustrationSettings(
+  settings: IllustrationSettings,
+): Promise<void> {
+  const supabase = await createClient();
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) throw new Error("Unauthorized");
+
+  // Fetch the currently-persisted raw value (paths, not signed URLs) so the
+  // reconciler can diff old vs new and remove any orphaned storage files.
+  const oldSettings = await getRawIllustrationSettings(supabase);
+
+  const toSave = await resolveMediaInValue(
+    supabase,
+    oldSettings,
+    settings,
+    SUPABASE_BUCKET_NAME,
+    `${DEFAULT_ORG_ID}/illustrations`,
+  );
+
+  const { error } = await supabase
+    .from(TABLES.ORGANIZATION_SETTINGS)
+    .upsert(
+      { org_id: DEFAULT_ORG_ID, key: "brand_illustration", value: toSave },
+      { onConflict: "org_id, key" },
+    );
+
+  if (error) {
+    console.error("Failed to save illustration settings", error);
+    throw new Error("Failed to save illustration settings");
+  }
+
+  revalidatePath(`/brand/brand-dna`);
 }

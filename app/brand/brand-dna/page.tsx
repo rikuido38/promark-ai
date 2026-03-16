@@ -1,13 +1,14 @@
 import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
-import { getBrandVisualSettings, getOrganization } from "../actions";
-import { BrandVisualForm } from "./brand-visual-form";
+import { getBrandVisualSettings, getIllustrationSettings, getOrganization } from "../actions";
+import { BrandDnaForm } from "./brand-dna-form";
 
-export default async function BrandVisualSettingsPage() {
-  const [initialSettings, org] = await Promise.all([
+export default async function BrandDnaPage() {
+  const [initialSettings, , initialIllustrationSettings] = await Promise.all([
     getBrandVisualSettings(),
     getOrganization(),
+    getIllustrationSettings(),
   ]);
 
   return (
@@ -18,7 +19,10 @@ export default async function BrandVisualSettingsPage() {
 
         <MainAssistantWrapper className="flex-1 overflow-y-auto border-t relative">
           <div className="max-w-6xl mx-auto p-4 md:p-8">
-            <BrandVisualForm initialSettings={initialSettings} />
+            <BrandDnaForm
+              initialSettings={initialSettings}
+              initialIllustrationSettings={initialIllustrationSettings}
+            />
           </div>
         </MainAssistantWrapper>
       </div>
