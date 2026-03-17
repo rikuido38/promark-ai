@@ -14,17 +14,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ConnectedTool } from "@/types/models";
+import type { AssistantOutput, MediaItem } from "@/types/agent";
 
 type Message = {
   role: "assistant" | "user";
   content: string;
-  imageUrl?: string;
+  medias?: MediaItem[];
   action?: "figma_connect";
   id: string;
 };
 
-export type MessageHandlerResult = { content: string; imageUrl?: string };
-export type MessageHandler = (message: string) => Promise<MessageHandlerResult>;
+/** @deprecated Use AssistantOutput directly */
+export type MessageHandlerResult = AssistantOutput;
+export type MessageHandler = (message: string) => Promise<AssistantOutput>;
 
 export function AssistantChatbot({
   title = "AI Assistant",
@@ -62,6 +64,7 @@ export function AssistantChatbot({
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [figmaConnecting, setFigmaConnecting] = useState(false);
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 
   const handleFigmaConnect = async () => {
     setFigmaConnecting(true);
@@ -77,31 +80,36 @@ export function AssistantChatbot({
   };
 
   const handleSendMessage = async () => {
-
     const userMessage = inputValue;
-      const userMsg: Message = {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: userMessage,
-      };
-      setMessages((prev) => [...prev, userMsg]);
+    const userMsg: Message = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: userMessage,
+    };
+    setMessages((prev) => [...prev, userMsg]);
     setInputValue("");
     setIsTyping(true);
 
     try {
-      let result: MessageHandlerResult;
+      let output: AssistantOutput;
 
       if (onSendMessage) {
-        result = await onSendMessage(userMessage);
+        output = await onSendMessage(userMessage);
       } else {
         const response = await fetch("/api/agent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: userMessage }),
+          body: JSON.stringify({ message: userMessage, sessionId }),
         });
         if (!response.ok) throw new Error("Failed to get agent response");
-        const data = await response.json();
-        result = { content: data.content || "I couldn't process this request right now." };
+        const data = (await response.json()) as { output: AssistantOutput; sessionId: string };
+        setSessionId(data.sessionId);
+        output = data.output ?? {
+          text: "I couldn't process this request right now.",
+          medias: [],
+          confidenceScore: 0,
+          metadata: {},
+        };
       }
 
       setMessages((prev) => [
@@ -109,8 +117,8 @@ export function AssistantChatbot({
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          content: result.content,
-          imageUrl: result.imageUrl,
+          content: output.text,
+          medias: output.medias,
         },
       ]);
     } catch (error) {
@@ -177,13 +185,31 @@ export function AssistantChatbot({
               }`}
             >
               <div dangerouslySetInnerHTML={{ __html: msg.content }} />
-              {msg.imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={msg.imageUrl}
-                  alt="Generated illustration"
-                  className="mt-2 rounded-xl w-full object-contain max-h-72"
-                />
+              {msg.medias && msg.medias.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {msg.medias.map((media) =>
+                    media.type === "image" ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={media.filename}
+                        src={media.signedUrl}
+                        alt={media.filename}
+                        className="rounded-xl w-full object-contain max-h-72"
+                      />
+                    ) : (
+                      <a
+                        key={media.filename}
+                        href={media.signedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-blue-600 underline break-all"
+                      >
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                        {media.filename}
+                      </a>
+                    ),
+                  )}
+                </div>
               )}
               {msg.action === "figma_connect" && figmaTool && !figmaTool.userConnected && (
                 <button

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useAIAssistant } from "@/components/ai-assistant-provider";
-import type { MessageHandlerResult } from "@/components/assistant-chatbot";
+import type { AssistantOutput } from "@/types/agent";
 
 /**
  * Registers an illustration-generation message handler with the global AI
@@ -14,7 +14,7 @@ export function DraftAssistantSetup() {
   const { setMessageHandler } = useAIAssistant();
 
   useEffect(() => {
-    const handler = async (message: string): Promise<MessageHandlerResult> => {
+    const handler = async (message: string): Promise<AssistantOutput> => {
       const res = await fetch("/api/generation/illustration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -26,11 +26,8 @@ export function DraftAssistantSetup() {
         throw new Error((err as { error?: string }).error ?? "Generation failed");
       }
 
-      const data = (await res.json()) as { signedUrl: string; path: string };
-      return {
-        content: "Here's your generated illustration:",
-        imageUrl: data.signedUrl,
-      };
+      const data = (await res.json()) as { output: AssistantOutput; sessionId: string };
+      return data.output;
     };
 
     setMessageHandler(handler);

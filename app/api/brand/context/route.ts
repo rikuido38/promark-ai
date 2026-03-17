@@ -16,7 +16,7 @@ import {
   saveBrandContext,
   setContextStatus,
 } from "@/services/brand-context";
-import { runBrandContextCompiler } from "@/lib/agents/BrandContextCompilerAgent";
+import { runBrandContextCompiler } from "@/lib/agents/subagents/BrandContextCompilerAgent";
 import type { IllustrationSettings } from "@/types/settings";
 
 // Explicitly set the key so the SDK never falls back to a stale cached default.

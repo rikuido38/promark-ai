@@ -2,11 +2,10 @@ import { config as dotenvConfig } from "dotenv";
 dotenvConfig({ path: ".env.local", override: true });
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { createClient } from "@/utils/supabase/server";
-import { SUPABASE_BUCKET_NAME, DEFAULT_ORG_ID } from "@/utils/constants";
-import { getBrandContext } from "@/services/brand-context";
-import { runBrandIllustrationCreator } from "@/lib/agents/BrandIllustrationAgent";
+import { DEFAULT_ORG_ID } from "@/utils/constants";
+import { TABLES } from "@/utils/supabase/constant";
+import { runMainAgent } from "@/lib/agents/MainAgent";
 import { setDefaultOpenAIKey } from "@openai/agents";
 
 type AllowedSize = "1024x1024" | "1024x1536" | "1536x1024";
@@ -17,11 +16,10 @@ const ALLOWED_SIZES = new Set<AllowedSize>(["1024x1024", "1024x1536", "1536x1024
 /**
  * Body: { prompt: string, size?: "1024x1024" | "1024x1536" | "1536x1024" }
  *
- * Fetches the compiled brand system_prompt_text from org_cache_context,
- * prepends it to the user prompt, generates an image via gpt-image-1, then
- * uploads the result to Supabase storage at temp/<org_id>/<uuid>.png.
+ * Delegates to the main agent with intent="direct" and target="generate_illustration".
+ * The agent fetches brand context internally and errors if none is found.
  *
- * Returns: { path: string, signedUrl: string }
+ * Returns: { output: AssistantOutput, sessionId: string }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -44,62 +42,24 @@ export async function POST(req: NextRequest) {
     const size: AllowedSize =
       ALLOWED_SIZES.has(body.size) ? body.size : "1024x1024";
 
-    // ── 2. Fetch compiled brand context + generate image via agent ────────────
+    // ── 2. Delegate to main agent ─────────────────────────────────────────────
     setDefaultOpenAIKey(process.env.OPENAI_API_KEY ?? "");
 
-    const context = await getBrandContext(supabase);
+    const { data: org } = await supabase
+      .from(TABLES.ORGANIZATIONS)
+      .select("assistant_name")
+      .eq("id", DEFAULT_ORG_ID)
+      .single();
 
-    let imageB64: string;
-
-    if (context) {
-      // Brand context exists — let the creator agent craft the system prompt
-      // and generate the illustration in one step.
-      const result = await runBrandIllustrationCreator({ supabase, context, userPrompt, size });
-      imageB64 = result.imageB64;
-    } else {
-      // No compiled brand context yet — fall back to raw generation.
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      const response = await openai.images.generate({
-        model: "gpt-image-1",
-        prompt: userPrompt,
-        size,
-        n: 1,
-      });
-      imageB64 = response.data?.[0]?.b64_json ?? "";
-    }
-
-    if (!imageB64) {
-      throw new Error("No image data returned from image generation");
-    }
-
-    // ── 3. Upload to Supabase storage ─────────────────────────────────────────
-    const imageBuffer = Buffer.from(imageB64, "base64");
-    const storagePath = `temp/${DEFAULT_ORG_ID}/${crypto.randomUUID()}.png`;
-
-    const { error: uploadError } = await supabase.storage
-      .from(SUPABASE_BUCKET_NAME)
-      .upload(storagePath, imageBuffer, {
-        contentType: "image/png",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      throw new Error(`Failed to upload image: ${uploadError.message}`);
-    }
-
-    // ── 4. Return signed URL (1 hour) ─────────────────────────────────────────
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from(SUPABASE_BUCKET_NAME)
-      .createSignedUrl(storagePath, 60 * 60);
-
-    if (signedError || !signedData?.signedUrl) {
-      throw new Error(`Failed to create signed URL: ${signedError?.message}`);
-    }
-
-    return NextResponse.json({
-      path: storagePath,
-      signedUrl: signedData.signedUrl,
+    const { output, sessionId } = await runMainAgent({
+      userMessage: `Generate an illustration (size: ${size}): ${userPrompt}`,
+      supabase,
+      assistantName: org?.assistant_name ?? null,
+      intent: "direct",
+      target: "generate_illustration",
     });
+
+    return NextResponse.json({ output, sessionId });
   } catch (error) {
     console.error("[POST /api/generation/illustration]", error);
     return NextResponse.json(
