@@ -2,10 +2,14 @@ import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { getOrganization } from "../../brand/actions";
+import { getRawOrgAvatarPath } from "../actions";
 import { AssistantForm } from "./assistant-form";
 
 export default async function AIAssistantSettingsPage() {
-  const org = await getOrganization();
+  const [org, avatarPath] = await Promise.all([
+    getOrganization(),
+    getRawOrgAvatarPath(),
+  ]);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white">
@@ -24,7 +28,8 @@ export default async function AIAssistantSettingsPage() {
 
             <AssistantForm
               initialName={org?.assistant_name || null}
-              initialAvatar={org?.avatar_url || null}
+              initialAvatarUrl={org?.avatar_url || null}
+              initialAvatarPath={avatarPath}
             />
           </div>
         </MainAssistantWrapper>

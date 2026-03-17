@@ -3,6 +3,7 @@ export const TABLES = {
   CAMPAIGNS: "campaigns",
   ORGANIZATIONS: "organizations",
   ORGANIZATION_SETTINGS: "organization_settings",
+  ORG_CACHE_CONTEXT: "org_cache_context",
   PROJECT_SETTINGS: "project_settings",
   PROJECT_USERS: "project_users",
   TAGS: "tags",

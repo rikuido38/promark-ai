@@ -177,3 +177,48 @@ export async function resolveMediaInValue<T>(
 
   return resolved;
 }
+
+// ── Signed URL utilities ──────────────────────────────────────────────────────
+
+/**
+ * Resolves a single raw storage path to a signed URL (1-hour expiry).
+ * Passes through paths that are already full http URLs.
+ */
+export async function resolveSignedUrl(
+  supabase: SupabaseClient,
+  path: string | undefined | null,
+  bucket: string,
+): Promise<string | undefined> {
+  if (!path || path.startsWith("http")) return path ?? undefined;
+  const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60);
+  return data?.signedUrl;
+}
+
+/**
+ * Batch-resolves an array of raw storage paths to signed URLs in a single
+ * Supabase API call. Returns a Map<storagePath, signedUrl>.
+ * Paths that are already http URLs are passed through as-is.
+ */
+export async function batchResolveSignedUrls(
+  supabase: SupabaseClient,
+  paths: (string | undefined | null)[],
+  bucket: string,
+): Promise<Map<string, string>> {
+  const toSign = [
+    ...new Set(paths.filter((p): p is string => !!p && !p.startsWith("http"))),
+  ];
+
+  const map = new Map<string, string>();
+  paths
+    .filter((p): p is string => !!p && p.startsWith("http"))
+    .forEach((p) => map.set(p, p));
+
+  if (toSign.length === 0) return map;
+
+  const { data } = await supabase.storage.from(bucket).createSignedUrls(toSign, 60 * 60);
+  (data ?? []).forEach(({ path, signedUrl }) => {
+    if (path && signedUrl) map.set(path, signedUrl);
+  });
+
+  return map;
+}

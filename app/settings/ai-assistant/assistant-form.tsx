@@ -11,10 +11,14 @@ import { AvatarDropzone } from "@/components/ui/avatar-dropzone";
 
 export function AssistantForm({
   initialName,
-  initialAvatar,
+  initialAvatarUrl,
+  initialAvatarPath,
 }: {
   initialName: string | null;
-  initialAvatar: string | null;
+  /** Signed URL for display (resolved by the page). */
+  initialAvatarUrl: string | null;
+  /** Raw storage path stored in the DB (e.g. default/images/assistant_avatar.png). */
+  initialAvatarPath: string | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -22,17 +26,17 @@ export function AssistantForm({
   const [name, setName] = useState(initialName || "");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(
-    initialAvatar,
+    initialAvatarUrl,
   );
 
-  // Track final avatar path (signed URL vs raw DB path)
+  // Raw storage path — never a signed URL. Only this is written to the DB.
   const [dbAvatarPath, setDbAvatarPath] = useState<string | null>(
-    initialAvatar,
+    initialAvatarPath,
   );
 
   const isDirty = name !== (initialName || "") || avatarFile !== null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!name.trim()) return;
 

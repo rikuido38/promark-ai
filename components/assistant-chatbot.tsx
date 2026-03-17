@@ -18,9 +18,13 @@ import type { ConnectedTool } from "@/types/models";
 type Message = {
   role: "assistant" | "user";
   content: string;
+  imageUrl?: string;
   action?: "figma_connect";
   id: string;
 };
+
+export type MessageHandlerResult = { content: string; imageUrl?: string };
+export type MessageHandler = (message: string) => Promise<MessageHandlerResult>;
 
 export function AssistantChatbot({
   title = "AI Assistant",
@@ -28,12 +32,14 @@ export function AssistantChatbot({
   avatarUrl = null,
   connectedTools = [],
   onClose,
+  onSendMessage,
 }: {
   title?: string;
   systemMessage?: string;
   avatarUrl?: string | null;
   connectedTools?: ConnectedTool[];
   onClose?: () => void;
+  onSendMessage?: MessageHandler;
 }) {
   const figmaTool = connectedTools.find((t) => t.slug === "figma");
   const buildInitialMessages = (): Message[] => {
@@ -83,24 +89,28 @@ export function AssistantChatbot({
     setIsTyping(true);
 
     try {
-      const response = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userMessage }),
-      });
+      let result: MessageHandlerResult;
 
-      if (!response.ok) {
-        throw new Error("Failed to get agent response");
+      if (onSendMessage) {
+        result = await onSendMessage(userMessage);
+      } else {
+        const response = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: userMessage }),
+        });
+        if (!response.ok) throw new Error("Failed to get agent response");
+        const data = await response.json();
+        result = { content: data.content || "I couldn't process this request right now." };
       }
-
-      const data = await response.json();
 
       setMessages((prev) => [
         ...prev,
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          content: data.content || "I couldn't process this request right now.",
+          content: result.content,
+          imageUrl: result.imageUrl,
         },
       ]);
     } catch (error) {
@@ -167,6 +177,14 @@ export function AssistantChatbot({
               }`}
             >
               <div dangerouslySetInnerHTML={{ __html: msg.content }} />
+              {msg.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={msg.imageUrl}
+                  alt="Generated illustration"
+                  className="mt-2 rounded-xl w-full object-contain max-h-72"
+                />
+              )}
               {msg.action === "figma_connect" && figmaTool && !figmaTool.userConnected && (
                 <button
                   onClick={handleFigmaConnect}

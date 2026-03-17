@@ -112,6 +112,7 @@ export async function saveBrandVisualSettings(settings: BrandVisualSettings) {
   }
 
   revalidatePath(`/brand/brand-dna`);
+  await markContextStale();
   return { success: true };
 }
 
@@ -293,4 +294,47 @@ export async function saveIllustrationSettings(
   }
 
   revalidatePath(`/brand/brand-dna`);
+  await markContextStale();
+}
+
+/**
+ * Returns true when the brand context either doesn't exist yet or has
+ * is_stale = true, meaning a recompile is needed.
+ */
+export type ContextState = {
+  isStale: boolean;
+  status: "in_progress" | "completed" | "error" | "not_found";
+};
+
+export async function getContextStaleness(): Promise<ContextState> {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) return { isStale: false, status: "not_found" };
+
+  const { data } = await supabase
+    .from(TABLES.ORG_CACHE_CONTEXT)
+    .select("is_stale, status")
+    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("key", "brand_illustration")
+    .maybeSingle();
+
+  // No record → never compiled → stale
+  if (!data) return { isStale: true, status: "not_found" };
+  return {
+    isStale: data.is_stale as boolean,
+    status: (data.status ?? "completed") as ContextState["status"],
+  };
+}
+
+/**
+ * Marks the brand illustration context as stale.
+ * Called automatically after brand or illustration settings are saved.
+ */
+export async function markContextStale(): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from(TABLES.ORG_CACHE_CONTEXT)
+    .update({ is_stale: true })
+    .eq("org_id", DEFAULT_ORG_ID)
+    .eq("key", "brand_illustration");
 }

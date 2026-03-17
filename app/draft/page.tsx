@@ -4,6 +4,7 @@ import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PenLine, ImageIcon, Video, Sparkles } from "lucide-react";
+import { DraftAssistantSetup } from "./draft-assistant-setup";
 
 function EmptyState({ icon: Icon, title, description }: { icon: ElementType; title: string; description: string }) {
   return (
@@ -31,6 +32,7 @@ export default function DraftPage() {
         <Header />
 
         <MainAssistantWrapper className="flex-1 overflow-y-auto border-t relative">
+          <DraftAssistantSetup />
           <div className="max-w-3xl mx-auto p-8 md:p-12 space-y-8">
 
             {/* Hero */}

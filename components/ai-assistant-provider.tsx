@@ -1,9 +1,10 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState, useEffect } from "react";
+import { createContext, useContext, useMemo, useState, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { GlobalAssistantFAB } from "./global-assistant-fab";
 import type { ConnectedTool } from "@/types/models";
+import type { MessageHandler } from "@/components/assistant-chatbot";
 
 
 type AIAssistantContextType = {
@@ -13,6 +14,8 @@ type AIAssistantContextType = {
   assistantName: string | null;
   avatarUrl: string | null;
   connectedTools: ConnectedTool[];
+  messageHandler: MessageHandler | undefined;
+  setMessageHandler: (handler: MessageHandler | undefined) => void;
 };
 
 const AIAssistantContext = createContext<AIAssistantContextType | undefined>(undefined);
@@ -29,7 +32,13 @@ export function AIAssistantProvider({
   connectedTools?: ConnectedTool[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [messageHandlerState, setMessageHandlerState] = useState<MessageHandler | undefined>(undefined);
   const pathname = usePathname();
+
+  const setMessageHandler = useCallback(
+    (handler: MessageHandler | undefined) => setMessageHandlerState(() => handler),
+    [],
+  );
 
   // Route change reset logic
   useEffect(() => {
@@ -48,8 +57,10 @@ export function AIAssistantProvider({
       assistantName: assistantName || null,
       avatarUrl: avatarUrl || null,
       connectedTools,
+      messageHandler: messageHandlerState,
+      setMessageHandler,
     }),
-    [isOpen, pathname, assistantName, avatarUrl, connectedTools], // eslint-disable-line react-hooks/exhaustive-deps
+    [isOpen, pathname, assistantName, avatarUrl, connectedTools, messageHandlerState, setMessageHandler], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return (

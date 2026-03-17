@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   IllustrationSettings,
   IllustrationColourPalette,
@@ -92,6 +92,16 @@ export function IllustrationsTab({
   );
 
   const [loading, setLoading] = useState(false);
+  const [lightbox, setLightbox] = useState<{ src: string; filename: string } | null>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (lightbox) {
+      dialogRef.current?.showModal();
+    } else {
+      dialogRef.current?.close();
+    }
+  }, [lightbox]);
 
   const isAnyUploading =
     styleSamples.some((i) => i.uploading) ||
@@ -443,20 +453,28 @@ export function IllustrationsTab({
                         </div>
                       )}
                       {!sampleItem.uploading && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setUsageSamples((prev) => {
-                              const next = [...prev];
-                              next[idx] = null;
-                              return next;
-                            })
-                          }
-                          className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          aria-label="Remove sample"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setLightbox({ src: sampleItem.previewUrl, filename: sampleItem.media.filename })}
+                            className="absolute inset-0 w-full h-full cursor-zoom-in focus:outline-none"
+                            aria-label={`Preview ${sampleItem.media.filename}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setUsageSamples((prev) => {
+                                const next = [...prev];
+                                next[idx] = null;
+                                return next;
+                              })
+                            }
+                            className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            aria-label="Remove sample"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </>
                       )}
                     </div>
                   ) : (
@@ -494,6 +512,35 @@ export function IllustrationsTab({
           {loading ? "Saving..." : "Save Changes"}
         </Button>
       </div>
+
+      {/* Lightbox */}
+      <dialog
+        ref={dialogRef}
+        className="m-auto max-w-3xl max-h-[90vh] rounded-xl overflow-hidden shadow-2xl p-0 bg-transparent backdrop:bg-black/70 backdrop:backdrop-blur-sm"
+        onClose={() => setLightbox(null)}
+      >
+        {lightbox && (
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.src}
+              alt={lightbox.filename}
+              className="max-w-full max-h-[90vh] object-contain block"
+            />
+            <button
+              type="button"
+              onClick={() => setLightbox(null)}
+              className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 transition-colors"
+              aria-label="Close preview"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <p className="absolute bottom-0 left-0 right-0 px-3 py-1.5 bg-black/50 text-white text-xs truncate">
+              {lightbox.filename}
+            </p>
+          </div>
+        )}
+      </dialog>
     </div>
   );
 }

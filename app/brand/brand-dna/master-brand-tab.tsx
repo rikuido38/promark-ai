@@ -8,12 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { Input } from "@/components/ui/input";
 import { ImageDropzone } from "@/components/ui/image-dropzone";
 import { ColorPaletteGroup } from "@/components/ui/color-palette-group";
 
 const fallbackSettings: BrandVisualSettings = {
+  company_name: "",
+  short_name: "",
+  slogan: "",
   primary_colors_hex: [],
+  primary_color_guidelines: "",
   secondary_colors_hex: [],
+  secondary_color_guidelines: "",
   composition_rules: "",
   typography_rules: "",
   logo_url: "",
@@ -85,6 +91,60 @@ export function MasterBrandTab({
 
   return (
     <div className="bg-white p-8 rounded-lg border shadow-sm space-y-10">
+      {/* Section 0 — Company Identity */}
+      <div className="space-y-4">
+        <div>
+          <p className="text-base font-semibold">Company Identity</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Core identifiers used across all brand materials.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5 md:col-span-2">
+            <Label htmlFor="company_name" className="text-sm font-medium">
+              Company name <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="company_name"
+              name="company_name"
+              placeholder="Acme Corporation"
+              value={formData.company_name || ""}
+              onChange={handleChange}
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="short_name" className="text-sm font-medium">
+              Short name / abbreviation
+            </Label>
+            <Input
+              id="short_name"
+              name="short_name"
+              placeholder="Acme"
+              value={formData.short_name || ""}
+              onChange={handleChange}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="slogan" className="text-sm font-medium">
+              Slogan / tagline
+            </Label>
+            <Input
+              id="slogan"
+              name="slogan"
+              placeholder="We make everything better."
+              value={formData.slogan || ""}
+              onChange={handleChange}
+            />
+          </div>
+        </div>
+      </div>
+
+      <hr className="border-slate-100" />
+
       {/* Section 1 — Logo */}
       <div className="space-y-4">
         <div>
@@ -94,10 +154,10 @@ export function MasterBrandTab({
           </p>
         </div>
 
-        <div className="flex gap-4 items-start">
-          <div className="flex-shrink-0 w-32 space-y-1.5">
+        <div className="space-y-4">
+          <div className="space-y-1.5">
             <Label className="text-sm font-medium">Brand Logo</Label>
-            <div className="relative">
+            <div className="relative w-32">
               {uploadingLogo && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 rounded-lg">
                   <span className="text-xs font-medium animate-pulse">Uploading...</span>
@@ -113,7 +173,7 @@ export function MasterBrandTab({
               />
             </div>
           </div>
-          <div className="flex-1 space-y-1.5">
+          <div className="space-y-1.5">
             <Label htmlFor="logo_guidelines" className="text-sm font-medium">
               Logo Guidelines
             </Label>
@@ -140,23 +200,54 @@ export function MasterBrandTab({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <ColorPaletteGroup
-            label="Primary Colors"
-            colors={formData.primary_colors_hex || []}
-            onChange={(colors) =>
-              setFormData((prev) => ({ ...prev, primary_colors_hex: colors }))
-            }
-            emptyText="No primary colors added."
-          />
-          <ColorPaletteGroup
-            label="Secondary Colors"
-            colors={formData.secondary_colors_hex || []}
-            onChange={(colors) =>
-              setFormData((prev) => ({ ...prev, secondary_colors_hex: colors }))
-            }
-            emptyText="No secondary colors added."
-          />
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            <ColorPaletteGroup
+              label="Primary colors"
+              colors={formData.primary_colors_hex || []}
+              onChange={(colors) =>
+                setFormData((prev) => ({ ...prev, primary_colors_hex: colors }))
+              }
+              emptyText="No primary colors added."
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="primary_color_guidelines" className="text-sm font-medium">
+                Primary colors guidelines
+              </Label>
+              <Textarea
+                id="primary_color_guidelines"
+                name="primary_color_guidelines"
+                placeholder="When and how to use primary colors, contrast requirements..."
+                value={formData.primary_color_guidelines || ""}
+                onChange={handleChange}
+                className="min-h-[80px] resize-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            <ColorPaletteGroup
+              label="Secondary colors"
+              colors={formData.secondary_colors_hex || []}
+              onChange={(colors) =>
+                setFormData((prev) => ({ ...prev, secondary_colors_hex: colors }))
+              }
+              emptyText="No secondary colors added."
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="secondary_color_guidelines" className="text-sm font-medium">
+                Secondary colors guidelines
+              </Label>
+              <Textarea
+                id="secondary_color_guidelines"
+                name="secondary_color_guidelines"
+                placeholder="Accent usage, supporting roles, combinations to avoid..."
+                value={formData.secondary_color_guidelines || ""}
+                onChange={handleChange}
+                className="min-h-[80px] resize-none"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -173,7 +264,7 @@ export function MasterBrandTab({
 
         <div className="space-y-2">
           <Label htmlFor="typography_rules" className="text-sm font-medium">
-            Typography Rules
+            Font rules
           </Label>
           <Textarea
             id="typography_rules"

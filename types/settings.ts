@@ -1,8 +1,13 @@
 export interface BrandVisualSettings {
+  company_name: string;
+  short_name?: string;
+  slogan?: string;
   logo_url?: string;
   logo_guidelines?: string;
   primary_colors_hex: string[];
+  primary_color_guidelines?: string;
   secondary_colors_hex?: string[];
+  secondary_color_guidelines?: string;
   typography_rules?: string;
   composition_rules: string;
 }

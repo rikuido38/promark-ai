@@ -12,6 +12,7 @@ import {
   Search,
   Blocks,
   PenLine,
+  FolderOpen,
 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
@@ -22,6 +23,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { Project } from "@/types/models";
 
 const NAV_LINKS = [
   { href: "/brand/brand-dna", icon: Palette, label: "Brand DNA" },
@@ -39,7 +41,7 @@ const SETTINGS_LINKS = [
   { href: "/settings/integrations", icon: Blocks, label: "Integrations" },
 ];
 
-export function SidebarClient() {
+export function SidebarClient({ recentProjects }: { recentProjects: Project[] }) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -147,6 +149,43 @@ export function SidebarClient() {
           </div>
 
           {/* Create — hidden for now */}
+
+          {/* Recent Projects */}
+          {recentProjects.length > 0 && (
+            <div className={cn("px-3 pt-4")}>
+              {!collapsed && (
+                <h2 className="mb-2 px-4 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                  Recent Projects
+                </h2>
+              )}
+              <div className="space-y-1">
+                {recentProjects.map((project) =>
+                  collapsed ? (
+                    <Tooltip key={project.id}>
+                      <TooltipTrigger>
+                        <Link
+                          href={`/project/${project.id}`}
+                          className="flex items-center justify-center h-9 w-9 mx-auto rounded-md hover:bg-muted/50 transition-colors text-muted-foreground"
+                        >
+                          <FolderOpen className="h-4 w-4" />
+                        </Link>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">{project.name}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Link
+                      key={project.id}
+                      href={`/project/${project.id}`}
+                      className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
+                    >
+                      <FolderOpen className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{project.name}</span>
+                    </Link>
+                  ),
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Settings */}
           <div className={cn("px-3 pt-4 border-t")}>
