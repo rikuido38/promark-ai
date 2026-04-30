@@ -1,5 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { BrandVisualSettings, IllustrationSettings } from "@/types/settings";
+import { BrandVisualSettings, IllustrationSettings, PaletteColor } from "@/types/settings";
 import {
   BrandIllustrationContext,
   BrandIllustrationContextRaw,
@@ -10,6 +10,16 @@ import { TABLES } from "@/utils/supabase/constant";
 import { resolveSignedUrl } from "@/lib/storage";
 
 // ── Settings ──────────────────────────────────────────────────────────────────
+
+/** Strip corrupt numeric-index keys that appear when a string was accidentally
+ *  spread into an object. Keeps only the three valid PaletteColor fields. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sanitizeColor(c: any): PaletteColor {
+  const result: PaletteColor = { hex: c.hex ?? "" };
+  if (c.opacity !== undefined) result.opacity = c.opacity;
+  if (c.description) result.description = c.description;
+  return result;
+}
 
 /**
  * Fetches the raw (unresolved) brand + illustration settings stored in
@@ -104,23 +114,40 @@ export async function getBrandContext(
 
   const raw = data.value as BrandIllustrationContextRaw;
 
-  const [logoUrl, styleSampleUrls, paletteImageUrls, usageSampleUrls] =
+  // Guard against stale/incomplete rows (e.g. compiled before brand settings existed)
+  if (!raw?.brand) return null;
+
+  const [logoUrl, styleSampleUrls, paletteImageUrls, usageSampleUrls, characterData] =
     await Promise.all([
       resolveSignedUrl(supabase, raw.brand.logo_path, SUPABASE_BUCKET_NAME),
       Promise.all(
-        (raw.illustration?.style_sample_paths ?? []).map((p) =>
+        (raw.illustration?.style_image_paths ?? []).map((p) =>
           resolveSignedUrl(supabase, p, SUPABASE_BUCKET_NAME),
         ),
       ),
       Promise.all(
-        (raw.illustration?.colour_palette.sample_image_paths ?? []).map((p) =>
+        (raw.illustration?.brand_colour_palette?.sample_image_paths ?? []).map((p) =>
           resolveSignedUrl(supabase, p, SUPABASE_BUCKET_NAME),
         ),
       ),
       Promise.all(
         (raw.illustration?.usages ?? []).map((u) =>
-          resolveSignedUrl(supabase, u.sample_path, SUPABASE_BUCKET_NAME),
+          resolveSignedUrl(supabase, u.sample_image_path, SUPABASE_BUCKET_NAME),
         ),
+      ),
+      Promise.all(
+        (raw.illustration?.characters ?? []).map(async (c) => ({
+          reference_image_url: await resolveSignedUrl(
+            supabase,
+            c.reference_image_path,
+            SUPABASE_BUCKET_NAME,
+          ),
+          guidelines: await Promise.all(
+            c.guidelines.map(async (g) => ({
+              sample_image_url: await resolveSignedUrl(supabase, g.sample_image_path, SUPABASE_BUCKET_NAME),
+            })),
+          ),
+        })),
       ),
     ]);
 
@@ -133,22 +160,38 @@ export async function getBrandContext(
     illustration: raw.illustration
       ? {
           style_description: raw.illustration.style_description,
-          style_sample_urls: styleSampleUrls.filter((u): u is string => !!u),
+          style_image_urls: styleSampleUrls.filter((u): u is string => !!u),
           style_analysis: raw.illustration.style_analysis,
-          colour_palette: {
-            outline_colors: raw.illustration.colour_palette.outline_colors,
-            supporting_colors: raw.illustration.colour_palette.supporting_colors,
-            skin_tone_colors: raw.illustration.colour_palette.skin_tone_colors,
-            hair_colors: raw.illustration.colour_palette.hair_colors,
-            background_colors: raw.illustration.colour_palette.background_colors,
-            shadow_colors: raw.illustration.colour_palette.shadow_colors,
+          illustration_style_prompt: raw.illustration.illustration_style_prompt ?? "",
+          brand_colour_palette: {
+            palette_user_description: raw.illustration.brand_colour_palette?.palette_user_description,
             sample_image_urls: paletteImageUrls.filter((u): u is string => !!u),
-            palette_analysis: raw.illustration.colour_palette.palette_analysis,
+            palette_style_prompt: raw.illustration.brand_colour_palette?.palette_style_prompt ?? "",
+          },
+          facial_colour_palette: {
+            hair_colors: (raw.illustration.facial_colour_palette?.hair_colors ?? (raw.illustration as any).colour_palette?.hair_colors ?? []).map(sanitizeColor),
+            skin_tone_colors: (raw.illustration.facial_colour_palette?.skin_tone_colors ?? (raw.illustration as any).colour_palette?.skin_tone_colors ?? []).map(sanitizeColor),
+            shadow_colors: (raw.illustration.facial_colour_palette?.shadow_colors ?? (raw.illustration as any).colour_palette?.shadow_colors ?? []).map(sanitizeColor),
+            facial_feature_colors: (raw.illustration.facial_colour_palette?.facial_feature_colors ?? (raw.illustration as any).colour_palette?.facial_feature_colors ?? []).map(sanitizeColor),
           },
           usages: raw.illustration.usages.map((u, i) => ({
             description: u.description,
-            sample_url: usageSampleUrls[i] ?? null,
+            sample_image_url: usageSampleUrls[i] ?? null,
             usage_analysis: u.usage_analysis,
+          })),
+          characters: (raw.illustration.characters ?? []).map((c, i) => ({
+            name: c.name,
+            reference_image_url: characterData[i]?.reference_image_url ?? null,
+            reference_image_analysis: c.reference_image_analysis,
+            character_prompt: c.character_prompt ?? "",
+            characteristics: c.characteristics,
+            age_group: c.age_group,
+            guidelines: c.guidelines.map((g, gi) => ({
+              title: g.title,
+              description: g.description,
+              sample_image_url: characterData[i]?.guidelines[gi]?.sample_image_url ?? null,
+              sample_analysis: g.sample_analysis,
+            })),
           })),
         }
       : null,
@@ -175,9 +218,13 @@ export function buildContextDocument(
           slogan: brand.slogan,
           logo_path: brand.logo_url,
           logo_guidelines: brand.logo_guidelines,
-          primary_colors: brand.primary_colors_hex ?? [],
-          primary_color_guidelines: brand.primary_color_guidelines,
-          secondary_colors: brand.secondary_colors_hex,
+        primary_colors: (brand.primary_colors_hex ?? []).map((c) =>
+          typeof c === "string" ? c : (c as { hex?: string }).hex ?? c,
+        ),
+        primary_color_guidelines: brand.primary_color_guidelines,
+        secondary_colors: (brand.secondary_colors_hex ?? []).map((c) =>
+          typeof c === "string" ? c : (c as { hex?: string }).hex ?? c,
+        ),
           secondary_color_guidelines: brand.secondary_color_guidelines,
           typography_rules: brand.typography_rules,
           composition_rules: brand.composition_rules,
@@ -186,24 +233,40 @@ export function buildContextDocument(
     illustration: illustration
       ? {
           style_description: illustration.style_description,
-          style_sample_paths: (illustration.style_samples ?? []).map((m) => m.url),
+          style_image_paths: (illustration.style_samples ?? []).map((m) => m.url),
           style_analysis: analyses?.styleAnalysis ?? "",
-          colour_palette: {
-            outline_colors: illustration.colour_palette?.outline_colors ?? [],
-            supporting_colors: illustration.colour_palette?.supporting_colors ?? [],
-            skin_tone_colors: illustration.colour_palette?.skin_tone_colors ?? [],
-            hair_colors: illustration.colour_palette?.hair_colors ?? [],
-            background_colors: illustration.colour_palette?.background_colors ?? [],
-            shadow_colors: illustration.colour_palette?.shadow_colors ?? [],
+          illustration_style_prompt: analyses?.illustrationStylePrompt ?? "",
+          brand_colour_palette: {
+            palette_user_description: illustration.palette_description,
             sample_image_paths: (illustration.colour_palette?.sample_images ?? []).map(
               (m) => m.url,
             ),
-            palette_analysis: analyses?.paletteAnalysis ?? "",
+            palette_style_prompt: analyses?.paletteAnalysis ?? "",
+          },
+          facial_colour_palette: {
+            hair_colors: (illustration.colour_palette?.hair_colors ?? []).map(sanitizeColor),
+            skin_tone_colors: (illustration.colour_palette?.skin_tone_colors ?? []).map(sanitizeColor),
+            shadow_colors: (illustration.colour_palette?.shadow_colors ?? []).map(sanitizeColor),
+            facial_feature_colors: (illustration.colour_palette?.facial_feature_colors ?? []).map(sanitizeColor),
           },
           usages: (illustration.usages ?? []).map((u, i) => ({
             description: u.description,
-            sample_path: u.sample?.url ?? null,
+            sample_image_path: u.sample?.url ?? null,
             usage_analysis: analyses?.usageAnalyses[i] ?? null,
+          })),
+          characters: (illustration.characters ?? []).map((c, i) => ({
+            name: c.name,
+            reference_image_path: c.reference_image?.url ?? null,
+            reference_image_analysis: analyses?.characterAnalyses[i]?.referenceAnalysis ?? "",
+            character_prompt: analyses?.characterPrompts[i] ?? "",
+            characteristics: c.characteristics,
+            age_group: c.age_group,
+            guidelines: c.guidelines.map((g, gi) => ({
+              title: g.title,
+              description: g.description,
+              sample_image_path: g.sample?.url ?? null,
+              sample_analysis: analyses?.characterAnalyses[i]?.guidelineAnalyses[gi] ?? null,
+            })),
           })),
         }
       : null,

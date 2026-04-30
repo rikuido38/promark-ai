@@ -4,21 +4,26 @@ export interface BrandVisualSettings {
   slogan?: string;
   logo_url?: string;
   logo_guidelines?: string;
-  primary_colors_hex: string[];
+  primary_colors_hex: PaletteColor[];
   primary_color_guidelines?: string;
-  secondary_colors_hex?: string[];
+  secondary_colors_hex?: PaletteColor[];
   secondary_color_guidelines?: string;
   typography_rules?: string;
   composition_rules: string;
 }
 
+export interface PaletteColor {
+  hex: string;
+  description?: string;
+  /** Opacity as a percentage 0–100 */
+  opacity?: number;
+}
+
 export interface IllustrationColourPalette {
-  outline_colors: string[];
-  supporting_colors: string[];
-  skin_tone_colors: string[];
-  hair_colors: string[];
-  background_colors: string[];
-  shadow_colors: string[];
+  hair_colors: PaletteColor[];
+  skin_tone_colors: PaletteColor[];
+  shadow_colors: PaletteColor[];
+  facial_feature_colors: PaletteColor[];
   /** sample images showing colour usage in context */
   sample_images: import("@/types/models").Media[];
 }
@@ -30,13 +35,36 @@ export interface IllustrationUsage {
   sample: import("@/types/models").Media | null;
 }
 
+export type CharacterAgeGroup = "Young" | "Teenager" | "Adult" | "Senior";
+
+export interface CharacterGuideline {
+  clientId: string;
+  title: string;
+  description: string;
+  /** optional sample image for this guideline */
+  sample: import("@/types/models").Media | null;
+}
+
+export interface IllustrationCharacter {
+  clientId: string;
+  name: string;
+  /** mandatory reference image */
+  reference_image: import("@/types/models").Media | null;
+  characteristics: string;
+  age_group: CharacterAgeGroup;
+  guidelines: CharacterGuideline[];
+}
+
 export interface IllustrationSettings {
   /** Free-text style concept, identity and colour description */
   style_description: string;
   /** Sample images illustrating the style */
   style_samples: import("@/types/models").Media[];
   colour_palette: IllustrationColourPalette;
+  /** Optional context about the colour palette for AI */
+  palette_description?: string;
   usages: IllustrationUsage[];
+  characters: IllustrationCharacter[];
 }
 
 export interface VoiceAndToneSettings {

@@ -16,26 +16,20 @@ const AGENT_TOOL_INSTRUCTIONS = `You are a brand illustration creator.
 When invoked, you MUST follow these steps in order:
 1. Call fetch_brand_context to load the brand settings and illustration context.
    If it fails, stop immediately — do not proceed.
-2. Read the user's request carefully BEFORE doing anything else. Decide:
-   a. Does the request mention the logo, brand mark, wordmark, or company symbol/badge?
-   b. If YES — note the desired position (e.g. "top right") and call fetch_logo NOW,
-      before crafting any prompt or generating the illustration.
-3. Craft a concise, actionable brand illustration system prompt (under 500 words)
+2. Craft a concise, actionable brand illustration system prompt (under 500 words)
    incorporating: exact hex codes for every colour role, illustration style traits,
    colour relationships, composition and usage context guidance.
    CRITICAL: The system_prompt MUST NOT mention any logo, brand mark, wordmark,
    badge, or company symbol. The logo will be composited on top afterwards.
-4. Call generate_illustration with:
-   - system_prompt: the prompt from step 3 (zero logo references)
+3. Call generate_illustration with:
+   - system_prompt: the prompt from step 2 (zero logo references)
    - user_prompt: the user's request with ALL logo/brand mark/wordmark/symbol
-     references REMOVED. Replace them with a note like
-     "leave <position> corner clear for a logo overlay" so the AI does not
-     invent or draw any logo in that area.
-   - size: the requested size (default 1024x1024)
-5. If fetch_logo was called in step 2 and succeeded, call attach_logo now,
-   passing the position noted in step 2 (default: bottom-right).
-6. Call upload_illustration to save the final image to storage.
-7. Your FINAL text output MUST be the exact JSON string returned by upload_illustration,
+     references REMOVED entirely. Do not add any placeholder or reservation note.
+4. If the user request asks for or mentions the company logo, you MUST call
+   fetch_logo first, then call attach_logo (default position: bottom-right,
+   unless the user specifies another position).
+5. Call upload_illustration to save the final PNG to storage.
+6. Your FINAL text output MUST be the exact JSON string returned by upload_illustration,
    with absolutely no other text, explanation, or formatting around it.`;
 
 /**
@@ -43,8 +37,12 @@ When invoked, you MUST follow these steps in order:
  *
  * Pipeline: fetch_brand_context → generate_illustration → [fetch_logo → attach_logo] → upload_illustration
  */
-export function createBrandIllustrationAgent(supabase: SupabaseClient): Agent {
+export function createBrandIllustrationAgent(
+  supabase: SupabaseClient,
+  options?: { imageModel?: string },
+): Agent {
   // Per-invocation state shared across tool calls via closure.
+  const imageModel = options?.imageModel ?? "gpt-image-1";
   let capturedContext: BrandIllustrationContext | null = null;
   let capturedLogoBuffer: Buffer | null = null;
   let capturedImageBuffer: Buffer | null = null;
@@ -73,20 +71,18 @@ export function createBrandIllustrationAgent(supabase: SupabaseClient): Agent {
         .string()
         .describe("The brand illustration system prompt crafted from the brand context"),
       user_prompt: z.string().describe("The user's exact illustration request"),
-      size: z
-        .enum(["1024x1024", "1024x1536", "1536x1024"])
-        .default("1024x1024")
-        .describe("Desired output image size"),
     }),
-    async execute({ system_prompt, user_prompt, size: reqSize }) {
+    async execute({ system_prompt, user_prompt }) {
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       const fullPrompt = `${system_prompt}\n\nUser request: ${user_prompt}`;
 
       const response = await openai.images.generate({
-        model: "gpt-image-1",
+        model: imageModel,
         prompt: fullPrompt,
-        size: reqSize,
+        size: "1024x1024",
         n: 1,
+        // gpt-image-1 always returns b64_json; dall-e-* default to URL so we must opt in.
+        ...(imageModel !== "gpt-image-1" && { response_format: "b64_json" as const }),
       });
 
       const imageB64 = response.data?.[0]?.b64_json ?? "";
@@ -179,14 +175,22 @@ export function createBrandIllustrationAgent(supabase: SupabaseClient): Agent {
       "Upload the final illustration to storage and return a signed URL. Always call this as the last step.",
     parameters: z.object({}),
     async execute() {
-      if (!capturedImageBuffer) throw new Error("generate_illustration must be called first.");
+      let uploadBuffer = capturedImageBuffer;
+      if (!uploadBuffer) throw new Error("generate_illustration must be called first.");
 
-      const filename = `${crypto.randomUUID()}.png`;
+      // Compress PNG: maximum effort and adaptive filtering for smaller file size
+      uploadBuffer = await sharp(uploadBuffer)
+        .png({ effort: 10, adaptiveFiltering: true })
+        .toBuffer();
+
+      const ext = "png";
+      const contentType = "image/png";
+      const filename = `${crypto.randomUUID()}.${ext}`;
       const storagePath = `temp/${DEFAULT_ORG_ID}/${filename}`;
 
       const { error: uploadError } = await supabase.storage
         .from(SUPABASE_BUCKET_NAME)
-        .upload(storagePath, capturedImageBuffer, { contentType: "image/png", upsert: false });
+        .upload(storagePath, uploadBuffer, { contentType, upsert: false });
 
       if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
 

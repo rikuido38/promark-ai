@@ -1,28 +1,10 @@
-import type { ElementType } from "react";
 import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PenLine, ImageIcon, Video, Sparkles } from "lucide-react";
 import { DraftAssistantSetup } from "./draft-assistant-setup";
-
-function EmptyState({ icon: Icon, title, description }: { icon: ElementType; title: string; description: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
-      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-slate-100 text-slate-500">
-        <Icon className="w-7 h-7" />
-      </div>
-      <div className="space-y-1">
-        <p className="font-semibold text-base">{title}</p>
-        <p className="text-sm text-muted-foreground max-w-xs">{description}</p>
-      </div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2">
-        <Sparkles className="w-3.5 h-3.5" />
-        <span>Coming soon. Stay tuned.</span>
-      </div>
-    </div>
-  );
-}
+import { DraftGrid } from "./draft-grid";
 
 export default function DraftPage() {
   return (
@@ -53,6 +35,10 @@ export default function DraftPage() {
                   <ImageIcon className="w-4 h-4" />
                   Images
                 </TabsTrigger>
+                <TabsTrigger value="illustrations" className="flex-1 gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  Illustrations
+                </TabsTrigger>
                 <TabsTrigger value="videos" className="flex-1 gap-2">
                   <Video className="w-4 h-4" />
                   Videos
@@ -60,19 +46,15 @@ export default function DraftPage() {
               </TabsList>
 
               <TabsContent value="images">
-                <EmptyState
-                  icon={ImageIcon}
-                  title="No images yet"
-                  description="Generate and refine on-brand images using your brand guidelines and AI."
-                />
+                <DraftGrid mediaType="image" />
+              </TabsContent>
+
+              <TabsContent value="illustrations">
+                <DraftGrid mediaType="illustration" />
               </TabsContent>
 
               <TabsContent value="videos">
-                <EmptyState
-                  icon={Video}
-                  title="No videos yet"
-                  description="Create short-form video content tailored to your campaign needs."
-                />
+                <DraftGrid mediaType="video" />
               </TabsContent>
             </Tabs>
 

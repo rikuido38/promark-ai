@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Agent, Tool } from "@openai/agents";
 import type { RouteMode } from "./intentRouter";
 import { createBrandIllustrationAgent } from "./subagents/BrandIllustrationAgent";
-import { createBrandIllustrationSVGAgent } from "./subagents/BrandIllustrationSVGAgent";
 
 // ---------------------------------------------------------------------------
 // Agent Registry
@@ -30,7 +29,15 @@ export interface AgentRegistryEntry {
   /** Description shown to the main agent so it knows when to call this tool. */
   toolDescription: string;
   /** Factory — receives per-request dependencies, returns a bound Agent. */
-  createAgent: (supabase: SupabaseClient) => Agent;
+  createAgent: (supabase: SupabaseClient, options?: AgentFactoryOptions) => Agent;
+  /** Max turns allowed for this subagent run. Defaults to 10 if omitted. */
+  maxTurns?: number;
+}
+
+/** Options passed through from the API call into every subagent factory. */
+export interface AgentFactoryOptions {
+  /** Image generation model override (e.g. "dall-e-3"). Defaults to "gpt-image-1". */
+  imageModel?: string;
 }
 
 export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
@@ -41,16 +48,8 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     toolDescription:
       "Generate an on-brand illustration or image from a user prompt. " +
       "Use this whenever the user asks to create, generate, or draw an illustration, image, or visual.",
-    createAgent: createBrandIllustrationAgent,
-  },
-  generate_illustration_svg: {
-    label: "Brand Illustration SVG Creator",
-    mode: "direct",
-    toolName: "generate_illustration_svg",
-    toolDescription:
-      "Generate an on-brand SVG vector illustration from a user prompt. " +
-      "Use this when the user asks for an SVG, vector graphic, or scalable illustration.",
-    createAgent: createBrandIllustrationSVGAgent,
+    createAgent: (supabase) => createBrandIllustrationAgent(supabase),
+    maxTurns: 20,
   },
   // ── Add new agents/pipelines here ───────────────────────────────────────
   // compile_brand_context: {
@@ -73,12 +72,14 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
 export function resolveAgentTool(
   target: string,
   supabase: SupabaseClient,
+  options?: AgentFactoryOptions,
 ): Tool | null {
   const entry = AGENT_REGISTRY[target];
   if (!entry) return null;
-  return entry.createAgent(supabase).asTool({
+  return entry.createAgent(supabase, options).asTool({
     toolName: entry.toolName,
     toolDescription: entry.toolDescription,
+    ...(entry.maxTurns !== undefined && { maxTurns: entry.maxTurns }),
   });
 }
 
@@ -86,11 +87,12 @@ export function resolveAgentTool(
  * Returns all registered agents as tools — used in agentic mode where the
  * main agent can freely choose which to call.
  */
-export function resolveAllAgentTools(supabase: SupabaseClient): Tool[] {
+export function resolveAllAgentTools(supabase: SupabaseClient, options?: AgentFactoryOptions): Tool[] {
   return Object.values(AGENT_REGISTRY).map((entry) =>
-    entry.createAgent(supabase).asTool({
+    entry.createAgent(supabase, options).asTool({
       toolName: entry.toolName,
       toolDescription: entry.toolDescription,
+      ...(entry.maxTurns !== undefined && { maxTurns: entry.maxTurns }),
     }),
   );
 }

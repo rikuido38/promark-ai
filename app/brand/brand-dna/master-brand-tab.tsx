@@ -157,6 +157,9 @@ export function MasterBrandTab({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label className="text-sm font-medium">Brand Logo</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Supported formats: PNG, JPG, SVG. Max size: 5MB. For best results, provide a high-resolution image with a transparent background.
+            </p>
             <div className="relative w-32">
               {uploadingLogo && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 rounded-lg">

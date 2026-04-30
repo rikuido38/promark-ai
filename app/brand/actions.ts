@@ -243,6 +243,19 @@ export async function getIllustrationSettings(): Promise<IllustrationSettings | 
     })),
   );
 
+  settings.characters = await Promise.all(
+    (settings.characters ?? []).map(async (c) => ({
+      ...c,
+      reference_image: c.reference_image ? await resolveMedia(c.reference_image) : null,
+      guidelines: await Promise.all(
+        (c.guidelines ?? []).map(async (g) => ({
+          ...g,
+          sample: g.sample ? await resolveMedia(g.sample) : null,
+        })),
+      ),
+    })),
+  );
+
   return settings;
 }
 

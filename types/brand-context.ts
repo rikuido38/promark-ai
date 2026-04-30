@@ -1,15 +1,20 @@
 /**
- * AI vision analysis results from the 3 parallel image analysis agents.
+ * AI vision analysis results from the image analysis tools.
  * Passed into buildContextDocument() and stored in the compiled doc so
  * images never need to be re-sent to AI on subsequent chat turns.
  */
 export interface IllustrationAnalysisResults {
-  /** GPT-4o description of style sample images */
   styleAnalysis: string;
-  /** GPT-4o description of palette sample images */
   paletteAnalysis: string;
-  /** GPT-4o description per usage sample image, null where no image existed */
   usageAnalyses: (string | null)[];
+  characterAnalyses: Array<{
+    referenceAnalysis: string;
+    guidelineAnalyses: (string | null)[];
+  }>;
+  /** Synthesised master prompt for generating on-brand illustrations */
+  illustrationStylePrompt: string;
+  /** Per-character prompts (index matches characters array) */
+  characterPrompts: string[];
 }
 
 /**
@@ -36,35 +41,53 @@ export interface BrandIllustrationContextRaw {
   illustration: {
     style_description: string;
     /** Raw storage paths for style reference images */
-    style_sample_paths: string[];
+    style_image_paths: string[];
     /** AI vision analysis of style sample images */
     style_analysis: string;
-    colour_palette: {
-      outline_colors: string[];
-      supporting_colors: string[];
-      skin_tone_colors: string[];
-      hair_colors: string[];
-      background_colors: string[];
-      shadow_colors: string[];
+    /** Synthesised AI prompt for generating on-brand illustrations */
+    illustration_style_prompt: string;
+    brand_colour_palette: {
+      /** User description of the overall brand colour palette */
+      palette_user_description?: string;
       /** Raw storage paths for palette sample images */
       sample_image_paths: string[];
       /** AI vision analysis of palette sample images */
-      palette_analysis: string;
+      palette_style_prompt: string;
+    };
+    facial_colour_palette: {
+      hair_colors: import("@/types/settings").PaletteColor[];
+      skin_tone_colors: import("@/types/settings").PaletteColor[];
+      shadow_colors: import("@/types/settings").PaletteColor[];
+      facial_feature_colors: import("@/types/settings").PaletteColor[];
     };
     usages: Array<{
       description: string;
       /** Raw storage path, null if none */
-      sample_path?: string | null;
+      sample_image_path?: string | null;
       /** AI vision analysis of usage sample image, null if no image */
       usage_analysis: string | null;
+    }>;
+    characters: Array<{
+      name: string;
+      /** Raw storage path for reference image */
+      reference_image_path: string | null;
+      /** AI vision analysis of the reference image */
+      reference_image_analysis: string;
+      /** Synthesised AI prompt for generating this character */
+      character_prompt: string;
+      characteristics: string;
+      age_group: string;
+      guidelines: Array<{
+        title: string;
+        description: string;
+        sample_image_path: string | null;
+        /** AI vision analysis of the guideline sample image, null if no image */
+        sample_analysis: string | null;
+      }>;
     }>;
   } | null;
 }
 
-/**
- * Returned by GET /api/brand/context.
- * Storage paths have been resolved to fresh signed URLs (1-hour expiry).
- */
 export interface BrandIllustrationContext {
   compiled_at: string;
   brand: {
@@ -85,25 +108,46 @@ export interface BrandIllustrationContext {
   };
   illustration: {
     style_description: string;
-    style_sample_urls: string[];
+    style_image_urls: string[];
     /** AI vision analysis of style sample images */
     style_analysis: string;
-    colour_palette: {
-      outline_colors: string[];
-      supporting_colors: string[];
-      skin_tone_colors: string[];
-      hair_colors: string[];
-      background_colors: string[];
-      shadow_colors: string[];
+    /** Synthesised AI prompt for generating on-brand illustrations */
+    illustration_style_prompt: string;
+    brand_colour_palette: {
+      /** User description of the overall brand colour palette */
+      palette_user_description?: string;
       sample_image_urls: string[];
       /** AI vision analysis of palette sample images */
-      palette_analysis: string;
+      palette_style_prompt: string;
+    };
+    facial_colour_palette: {
+      hair_colors: import("@/types/settings").PaletteColor[];
+      skin_tone_colors: import("@/types/settings").PaletteColor[];
+      shadow_colors: import("@/types/settings").PaletteColor[];
+      facial_feature_colors: import("@/types/settings").PaletteColor[];
     };
     usages: Array<{
       description: string;
-      sample_url?: string | null;
+      sample_image_url?: string | null;
       /** AI vision analysis of usage sample image */
       usage_analysis: string | null;
+    }>;
+    characters: Array<{
+      name: string;
+      reference_image_url: string | null;
+      /** AI vision analysis of the reference image */
+      reference_image_analysis: string;
+      /** Synthesised AI prompt for generating this character */
+      character_prompt: string;
+      characteristics: string;
+      age_group: string;
+      guidelines: Array<{
+        title: string;
+        description: string;
+        sample_image_url: string | null;
+        /** AI vision analysis of the guideline sample image, null if no image */
+        sample_analysis: string | null;
+      }>;
     }>;
   } | null;
 }

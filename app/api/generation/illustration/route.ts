@@ -6,11 +6,11 @@ import { createClient } from "@/utils/supabase/server";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
 import { TABLES } from "@/utils/supabase/constant";
 import { runMainAgent } from "@/lib/agents/MainAgent";
-import { setDefaultOpenAIKey } from "@openai/agents";
+import { setDefaultOpenAIKey, MaxTurnsExceededError } from "@openai/agents";
+import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS } from "@/types/agent";
+import type { AssistantOutput } from "@/types/agent";
 
-type AllowedSize = "1024x1024" | "1024x1536" | "1536x1024";
-
-const ALLOWED_SIZES = new Set<AllowedSize>(["1024x1024", "1024x1536", "1536x1024"]);
+const ALLOWED_IMAGE_MODELS = new Set(IMAGE_MODELS.map((m) => m.id));
 
 // ── POST /api/generation/illustration ────────────────────────────────────────
 /**
@@ -39,10 +39,12 @@ export async function POST(req: NextRequest) {
     }
 
     const userPrompt = body.prompt.trim();
-    const size: AllowedSize =
-      ALLOWED_SIZES.has(body.size) ? body.size : "1024x1024";
+    const imageModel =
+      typeof body.model === "string" && ALLOWED_IMAGE_MODELS.has(body.model)
+        ? body.model
+        : DEFAULT_IMAGE_MODEL;
 
-    // ── 2. Delegate to main agent ─────────────────────────────────────────────
+    // ── 2. Delegate to main agent ────────────────────────────────────────────────────
     setDefaultOpenAIKey(process.env.OPENAI_API_KEY ?? "");
 
     const { data: org } = await supabase
@@ -52,15 +54,24 @@ export async function POST(req: NextRequest) {
       .single();
 
     const { output, sessionId } = await runMainAgent({
-      userMessage: `Generate an illustration (size: ${size}): ${userPrompt}`,
+      userMessage: `Generate an illustration: ${userPrompt}`,
       supabase,
       assistantName: org?.assistant_name ?? null,
+      imageModel,
       intent: "direct",
       target: "generate_illustration",
     });
 
     return NextResponse.json({ output, sessionId });
   } catch (error) {
+    if (error instanceof MaxTurnsExceededError) {
+      console.warn("[POST /api/generation/illustration] MaxTurnsExceeded — returning partial output");
+      // The error may carry the last agent output; surface it as a partial success.
+      const partial = (error as MaxTurnsExceededError & { output?: AssistantOutput }).output;
+      if (partial) {
+        return NextResponse.json({ output: partial, sessionId: null, partial: true });
+      }
+    }
     console.error("[POST /api/generation/illustration]", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Internal Server Error" },

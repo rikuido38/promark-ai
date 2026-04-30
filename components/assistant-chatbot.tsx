@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ExternalLink, ImageIcon, Plus, Send, Sparkles, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { BookmarkCheck, Bookmark, ExternalLink, ImageIcon, Plus, Send, Sparkles, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ConnectedTool } from "@/types/models";
 import type { AssistantOutput, MediaItem } from "@/types/agent";
+import { saveDraft } from "@/app/draft/actions";
 
 type Message = {
   role: "assistant" | "user";
@@ -26,7 +28,7 @@ type Message = {
 
 /** @deprecated Use AssistantOutput directly */
 export type MessageHandlerResult = AssistantOutput;
-export type MessageHandler = (message: string) => Promise<AssistantOutput>;
+export type MessageHandler = (message: string, model?: string) => Promise<AssistantOutput>;
 
 export function AssistantChatbot({
   title = "AI Assistant",
@@ -35,6 +37,7 @@ export function AssistantChatbot({
   connectedTools = [],
   onClose,
   onSendMessage,
+  availableModels,
 }: {
   title?: string;
   systemMessage?: string;
@@ -42,6 +45,7 @@ export function AssistantChatbot({
   connectedTools?: ConnectedTool[];
   onClose?: () => void;
   onSendMessage?: MessageHandler;
+  availableModels?: string[];
 }) {
   const figmaTool = connectedTools.find((t) => t.slug === "figma");
   const buildInitialMessages = (): Message[] => {
@@ -65,6 +69,29 @@ export function AssistantChatbot({
   const [isTyping, setIsTyping] = useState(false);
   const [figmaConnecting, setFigmaConnecting] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  // filename → "saving" | "saved" | "error"
+  const [draftState, setDraftState] = useState<Record<string, "saving" | "saved" | "error">>({});
+  const [selectedModel, setSelectedModel] = useState<string>(availableModels?.[0] ?? "");
+
+  // Sync selectedModel when the available list changes (e.g. on page mount).
+  useEffect(() => {
+    if (availableModels && availableModels.length > 0) {
+      setSelectedModel((prev) => availableModels.includes(prev) ? prev : availableModels[0]);
+    }
+  }, [availableModels]);
+
+  const handleSaveDraft = async (media: MediaItem) => {
+    if (draftState[media.filename]) return;
+    if (!media.storagePath) return;
+    setDraftState((prev) => ({ ...prev, [media.filename]: "saving" }));
+    try {
+      await saveDraft(media.storagePath, media.filename, media.type as "image" | "video");
+      setDraftState((prev) => ({ ...prev, [media.filename]: "saved" }));
+    } catch (err) {
+      console.error("Save draft failed:", err);
+      setDraftState((prev) => ({ ...prev, [media.filename]: "error" }));
+    }
+  };
 
   const handleFigmaConnect = async () => {
     setFigmaConnecting(true);
@@ -94,7 +121,7 @@ export function AssistantChatbot({
       let output: AssistantOutput;
 
       if (onSendMessage) {
-        output = await onSendMessage(userMessage);
+        output = await onSendMessage(userMessage, selectedModel || undefined);
       } else {
         const response = await fetch("/api/agent", {
           method: "POST",
@@ -187,16 +214,43 @@ export function AssistantChatbot({
               <div dangerouslySetInnerHTML={{ __html: msg.content }} />
               {msg.medias && msg.medias.length > 0 && (
                 <div className="mt-2 space-y-2">
-                  {msg.medias.map((media) =>
-                    media.type === "image" ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={media.filename}
-                        src={media.signedUrl}
-                        alt={media.filename}
-                        className="rounded-xl w-full object-contain max-h-72"
-                      />
-                    ) : (
+                  {msg.medias.map((media) => {
+                    if (media.type === "image") {
+                      const state = draftState[media.filename];
+                      let btnTitle = "Save to drafts";
+                      if (state === "saved") btnTitle = "Saved to drafts";
+                      if (state === "error") btnTitle = "Save failed — try again";
+
+                      let btnClass = "bg-white/90 text-slate-700 hover:bg-white";
+                      if (state === "saved") btnClass = "bg-green-500 text-white opacity-100";
+                      if (state === "error") btnClass = "bg-red-500 text-white opacity-100";
+
+                      return (
+                        <div key={media.filename} className="relative group">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={media.signedUrl}
+                            alt={media.filename}
+                            className="rounded-xl w-full object-contain max-h-72"
+                          />
+                          {media.storagePath && (
+                            <button
+                              onClick={() => handleSaveDraft(media)}
+                              disabled={!!state}
+                              title={btnTitle}
+                              className={`absolute top-2 right-2 flex items-center justify-center w-8 h-8 rounded-full shadow-md transition-all opacity-0 group-hover:opacity-100 ${btnClass}`}
+                            >
+                              {state === "saved" ? (
+                                <BookmarkCheck className="h-4 w-4" />
+                              ) : (
+                                <Bookmark className={`h-4 w-4 ${state === "saving" ? "animate-pulse" : ""}`} />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+                    return (
                       <a
                         key={media.filename}
                         href={media.signedUrl}
@@ -207,8 +261,8 @@ export function AssistantChatbot({
                         <ExternalLink className="h-3 w-3 shrink-0" />
                         {media.filename}
                       </a>
-                    ),
-                  )}
+                    );
+                  })}
                 </div>
               )}
               {msg.action === "figma_connect" && figmaTool && !figmaTool.userConnected && (
@@ -252,6 +306,7 @@ export function AssistantChatbot({
             }}
           />
           <div className="flex items-center justify-between px-2 pb-2 pt-1">
+            <div className="flex items-center gap-1">
             <DropdownMenu>
               <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
                 <Plus className="h-4 w-4" />
@@ -291,6 +346,22 @@ export function AssistantChatbot({
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {availableModels && availableModels.length > 1 && (
+              <Select value={selectedModel} onValueChange={(val) => setSelectedModel(val ?? "")}>
+                <SelectTrigger size="sm" className="h-7 text-xs border-slate-200 bg-slate-50 w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent side="top" align="start">
+                  {availableModels.map((modelId) => (
+                    <SelectItem key={modelId} value={modelId}>
+                      {modelId}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            </div>
 
             <Button
               size="icon"

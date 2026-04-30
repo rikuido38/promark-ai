@@ -11,4 +11,5 @@ export const TABLES = {
   INTEGRATION_TAGS: "integration_tags",
   ORGANIZATION_INTEGRATIONS: "organization_integrations",
   USER_INTEGRATIONS: "user_integrations",
+  USER_DRAFTS: "user_drafts",
 } as const;

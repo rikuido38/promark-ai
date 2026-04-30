@@ -1,3 +1,19 @@
+// ---------------------------------------------------------------------------
+// Image generation models
+// ---------------------------------------------------------------------------
+
+export const IMAGE_MODELS = [
+  { id: "gpt-image-1", label: "GPT Image 1" },
+  { id: "dall-e-3",    label: "DALL·E 3" },
+  { id: "dall-e-2",    label: "DALL·E 2" },
+] as const;
+
+export type ImageModel = (typeof IMAGE_MODELS)[number]["id"];
+
+export const DEFAULT_IMAGE_MODEL: ImageModel = "gpt-image-1";
+
+// ---------------------------------------------------------------------------
+
 export interface AgentResponse {
   type: "text" | "ui" | "input_request";
   content: string;
@@ -15,6 +31,8 @@ export interface MediaItem {
   /** Pre-signed or public URL the client uses to download / display the asset */
   signedUrl: string
   type: MediaType
+  /** Storage path within the bucket — used for server-side operations like copy-to-drafts */
+  storagePath?: string
 }
 
 export interface AssistantOutput {

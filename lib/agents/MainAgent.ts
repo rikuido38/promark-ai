@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getOrCreateSession } from "./sessionStore";
 import { classifyIntent } from "./intentRouter";
 import { resolveAgentTool, resolveAllAgentTools } from "./agentRegistry";
+import type { AgentFactoryOptions } from "./agentRegistry";
 import type { RouteMode } from "./intentRouter";
 import type { AssistantOutput } from "@/types/agent";
 
@@ -22,6 +23,7 @@ const MediaItemSchema = z.object({
   filename: z.string(),
   signedUrl: z.string(),
   type: z.enum(["image", "video", "link"]),
+  storagePath: z.string().optional(),
 });
 
 const AssistantOutputSchema = z.object({
@@ -66,9 +68,10 @@ ALWAYS respond with a valid JSON object matching this exact shape:
 Media handling — IMPORTANT:
 - When any tool returns a JSON string containing "signedUrl" and "filename", you MUST
   parse it and add an entry to "medias".
+- Include "storagePath" in the media entry if the tool result contains it.
 - For illustration/image tools set "type" to "image".
 - For file/document tools set "type" to "url".
-- Example media entry: { "filename": "abc.png", "signedUrl": "https://...", "type": "image" }
+- Example media entry: { "filename": "abc.png", "signedUrl": "https://...", "storagePath": "temp/default/abc.png", "type": "image" }
 - Always include every media returned by a tool — never discard them.
 
 Rules:
@@ -129,6 +132,11 @@ export interface RunMainAgentOptions {
    * Only used when `intent` is "direct" or "pipeline".
    */
   target?: string;
+  /**
+   * Image generation model to use in illustration subagents.
+   * Defaults to "gpt-image-1" if not provided.
+   */
+  imageModel?: string;
 }
 
 export interface RunMainAgentResult {
@@ -154,7 +162,10 @@ export async function runMainAgent(
     supabase,
     intent: explicitIntent,
     target: explicitTarget,
+    imageModel,
   } = options;
+
+  const agentOptions: AgentFactoryOptions = { imageModel };
 
   const sessionId = incomingId ?? randomUUID();
   const session = getOrCreateSession(sessionId);
@@ -178,12 +189,12 @@ export async function runMainAgent(
   let tools;
   if (route.mode === "agentic") {
     // Open-ended: give the agent access to every registered subagent as a tool.
-    tools = resolveAllAgentTools(supabase);
+    tools = resolveAllAgentTools(supabase, agentOptions);
   } else {
     // Pipeline / direct: restrict the agent to the one relevant subagent tool
     // so it cannot stray. Falls back to no tools if target isn't registered.
     const singleTool = route.target
-      ? resolveAgentTool(route.target, supabase)
+      ? resolveAgentTool(route.target, supabase, agentOptions)
       : null;
     tools = singleTool ? [singleTool] : [];
   }

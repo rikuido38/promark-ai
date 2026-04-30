@@ -16,6 +16,8 @@ type AIAssistantContextType = {
   connectedTools: ConnectedTool[];
   messageHandler: MessageHandler | undefined;
   setMessageHandler: (handler: MessageHandler | undefined) => void;
+  availableModels: string[];
+  setAvailableModels: (models: string[]) => void;
 };
 
 const AIAssistantContext = createContext<AIAssistantContextType | undefined>(undefined);
@@ -33,6 +35,7 @@ export function AIAssistantProvider({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messageHandlerState, setMessageHandlerState] = useState<MessageHandler | undefined>(undefined);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const pathname = usePathname();
 
   const setMessageHandler = useCallback(
@@ -59,8 +62,10 @@ export function AIAssistantProvider({
       connectedTools,
       messageHandler: messageHandlerState,
       setMessageHandler,
+      availableModels,
+      setAvailableModels,
     }),
-    [isOpen, pathname, assistantName, avatarUrl, connectedTools, messageHandlerState, setMessageHandler], // eslint-disable-line react-hooks/exhaustive-deps
+    [isOpen, pathname, assistantName, avatarUrl, connectedTools, messageHandlerState, setMessageHandler, availableModels, setAvailableModels], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return (

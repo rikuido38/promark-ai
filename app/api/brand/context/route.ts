@@ -116,6 +116,14 @@ function collectImagePaths(illustration: IllustrationSettings | null): string[] 
     ...(illustration.usages ?? [])
       .map((u) => u.sample?.url)
       .filter((p): p is string => !!p),
+    ...(illustration.characters ?? [])
+      .map((c) => c.reference_image?.url)
+      .filter((p): p is string => !!p),
+    ...(illustration.characters ?? []).flatMap((c) =>
+      (c.guidelines ?? [])
+        .map((g) => g.sample?.url)
+        .filter((p): p is string => !!p),
+    ),
   ];
 }
 

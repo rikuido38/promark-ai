@@ -11,14 +11,16 @@ import type { AssistantOutput } from "@/types/agent";
  * chatbot can render it inline.
  */
 export function DraftAssistantSetup() {
-  const { setMessageHandler } = useAIAssistant();
+  const { setMessageHandler, setAvailableModels } = useAIAssistant();
 
   useEffect(() => {
-    const handler = async (message: string): Promise<AssistantOutput> => {
+    setAvailableModels(["gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5"]);
+
+    const handler = async (message: string, model?: string): Promise<AssistantOutput> => {
       const res = await fetch("/api/generation/illustration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: message }),
+        body: JSON.stringify({ prompt: message, model }),
       });
 
       if (!res.ok) {
@@ -31,8 +33,11 @@ export function DraftAssistantSetup() {
     };
 
     setMessageHandler(handler);
-    return () => setMessageHandler(undefined);
-  }, [setMessageHandler]);
+    return () => {
+      setMessageHandler(undefined);
+      setAvailableModels([]);
+    };
+  }, [setMessageHandler, setAvailableModels]);
 
   return null;
 }
