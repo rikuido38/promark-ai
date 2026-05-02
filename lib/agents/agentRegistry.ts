@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Agent, Tool } from "@openai/agents";
 import type { RouteMode } from "./intentRouter";
-import { createBrandIllustrationAgent } from "./subagents/BrandIllustrationAgent";
+import { createBrandIllustrationAgent } from "./subagents/brand-illustration-agent";
 
 // ---------------------------------------------------------------------------
 // Agent Registry
