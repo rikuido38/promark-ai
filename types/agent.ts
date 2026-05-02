@@ -3,14 +3,13 @@
 // ---------------------------------------------------------------------------
 
 export const IMAGE_MODELS = [
-  { id: "gpt-image-1", label: "GPT Image 1" },
-  { id: "dall-e-3",    label: "DALL·E 3" },
-  { id: "dall-e-2",    label: "DALL·E 2" },
+  { id: "gpt-image-2", label: "GPT Image 2" },
+  { id: "gpt-image-1.5",    label: "GPT Image 1.5" },
 ] as const;
 
 export type ImageModel = (typeof IMAGE_MODELS)[number]["id"];
 
-export const DEFAULT_IMAGE_MODEL: ImageModel = "gpt-image-1";
+export const DEFAULT_IMAGE_MODEL: ImageModel = "gpt-image-2";
 
 // ---------------------------------------------------------------------------
 

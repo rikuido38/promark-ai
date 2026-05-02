@@ -1,0 +1,49 @@
+Create a brand-consistent vector illustration.
+
+STYLE: {{style_description}}
+{{#palette_user_description}}
+BRAND PALETTE: {{palette_user_description}}
+{{/palette_user_description}}
+{{#palette_style_prompt}}
+COLOUR GUIDANCE: {{palette_style_prompt}}
+{{/palette_style_prompt}}
+
+BRAND COLOURS:
+{{#primary_colors}}
+  Primary: {{primary_colors}}
+{{/primary_colors}}
+{{#secondary_colors}}
+  Secondary: {{secondary_colors}}
+{{/secondary_colors}}
+{{#primary_color_guidelines}}
+  Guidelines: {{primary_color_guidelines}}
+{{/primary_color_guidelines}}
+
+FACIAL COLOUR PALETTE (apply exactly for all characters):
+{{#hair_colors}}
+  Hair: {{hair_colors}}
+{{/hair_colors}}
+{{#skin_tone_colors}}
+  Skin tones: {{skin_tone_colors}}
+{{/skin_tone_colors}}
+{{#shadow_colors}}
+  Shadows: {{shadow_colors}}
+{{/shadow_colors}}
+{{#facial_feature_colors}}
+  Facial features: {{facial_feature_colors}}
+{{/facial_feature_colors}}
+
+OUTPUT REQUIREMENTS:
+  - PNG format with fully transparent background
+  - Strictly follow brand colour palette — do not introduce new colours
+  - Apply facial colour guidelines exactly as specified above
+  - Vector illustration aesthetic
+
+SCENE: {{user_prompt}}
+{{#has_image_labels}}
+
+IMAGE REFERENCES:
+{{#image_labels}}
+{{.}}
+{{/image_labels}}
+{{/has_image_labels}}

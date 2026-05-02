@@ -38,6 +38,10 @@ export interface AgentRegistryEntry {
 export interface AgentFactoryOptions {
   /** Image generation model override (e.g. "dall-e-3"). Defaults to "gpt-image-1". */
   imageModel?: string;
+  /** Pre-loaded sample image URLs from the user's chat attachments. */
+  sampleImageUrls?: string[];
+  /** The original user message, forwarded verbatim as the illustration scene prompt. */
+  userMessage?: string;
 }
 
 export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
@@ -48,7 +52,7 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     toolDescription:
       "Generate an on-brand illustration or image from a user prompt. " +
       "Use this whenever the user asks to create, generate, or draw an illustration, image, or visual.",
-    createAgent: (supabase) => createBrandIllustrationAgent(supabase),
+    createAgent: (supabase, options) => createBrandIllustrationAgent(supabase, options),
     maxTurns: 20,
   },
   // ── Add new agents/pipelines here ───────────────────────────────────────

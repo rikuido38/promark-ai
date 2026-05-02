@@ -137,6 +137,11 @@ export interface RunMainAgentOptions {
    * Defaults to "gpt-image-1" if not provided.
    */
   imageModel?: string;
+  /**
+   * Signed URLs of user-attached reference images to forward to the
+   * illustration subagent as direction/behaviour samples.
+   */
+  sampleImageUrls?: string[];
 }
 
 export interface RunMainAgentResult {
@@ -163,9 +168,17 @@ export async function runMainAgent(
     intent: explicitIntent,
     target: explicitTarget,
     imageModel,
+    sampleImageUrls,
   } = options;
 
-  const agentOptions: AgentFactoryOptions = { imageModel };
+  console.log("[MainAgent] runMainAgent: request", {
+    sessionId: incomingId,
+    imageModel,
+    sampleImageUrls,
+    userMessage,
+  });
+
+  const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage };
 
   const sessionId = incomingId ?? randomUUID();
   const session = getOrCreateSession(sessionId);

@@ -4,17 +4,17 @@
  * images never need to be re-sent to AI on subsequent chat turns.
  */
 export interface IllustrationAnalysisResults {
-  styleAnalysis: string;
   paletteAnalysis: string;
   usageAnalyses: (string | null)[];
   characterAnalyses: Array<{
-    referenceAnalysis: string;
     guidelineAnalyses: (string | null)[];
   }>;
-  /** Synthesised master prompt for generating on-brand illustrations */
-  illustrationStylePrompt: string;
-  /** Per-character prompts (index matches characters array) */
-  characterPrompts: string[];
+  /** @deprecated No longer generated — kept for backwards compatibility with stored rows */
+  illustrationStylePrompt?: string;
+  /** @deprecated No longer generated — kept for backwards compatibility with stored rows */
+  styleAnalysis?: string;
+  /** @deprecated No longer generated — kept for backwards compatibility with stored rows */
+  characterPrompts?: string[];
 }
 
 /**
@@ -44,8 +44,6 @@ export interface BrandIllustrationContextRaw {
     style_image_paths: string[];
     /** AI vision analysis of style sample images */
     style_analysis: string;
-    /** Synthesised AI prompt for generating on-brand illustrations */
-    illustration_style_prompt: string;
     brand_colour_palette: {
       /** User description of the overall brand colour palette */
       palette_user_description?: string;
@@ -71,8 +69,6 @@ export interface BrandIllustrationContextRaw {
       name: string;
       /** Raw storage path for reference image */
       reference_image_path: string | null;
-      /** AI vision analysis of the reference image */
-      reference_image_analysis: string;
       /** Synthesised AI prompt for generating this character */
       character_prompt: string;
       characteristics: string;
@@ -111,8 +107,6 @@ export interface BrandIllustrationContext {
     style_image_urls: string[];
     /** AI vision analysis of style sample images */
     style_analysis: string;
-    /** Synthesised AI prompt for generating on-brand illustrations */
-    illustration_style_prompt: string;
     brand_colour_palette: {
       /** User description of the overall brand colour palette */
       palette_user_description?: string;
@@ -135,8 +129,6 @@ export interface BrandIllustrationContext {
     characters: Array<{
       name: string;
       reference_image_url: string | null;
-      /** AI vision analysis of the reference image */
-      reference_image_analysis: string;
       /** Synthesised AI prompt for generating this character */
       character_prompt: string;
       characteristics: string;

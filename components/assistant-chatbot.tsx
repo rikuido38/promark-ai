@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BookmarkCheck, Bookmark, ExternalLink, ImageIcon, Plus, Send, Sparkles, X } from "lucide-react";
+import { BookmarkCheck, Bookmark, ExternalLink, ImageIcon, Loader2, Plus, Send, Sparkles, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +17,7 @@ import {
 import type { ConnectedTool } from "@/types/models";
 import type { AssistantOutput, MediaItem } from "@/types/agent";
 import { saveDraft } from "@/app/draft/actions";
+import { uploadChatAttachment, type UploadAttachmentResult } from "@/app/actions/upload-attachment";
 
 type Message = {
   role: "assistant" | "user";
@@ -72,6 +73,31 @@ export function AssistantChatbot({
   // filename → "saving" | "saved" | "error"
   const [draftState, setDraftState] = useState<Record<string, "saving" | "saved" | "error">>({});
   const [selectedModel, setSelectedModel] = useState<string>(availableModels?.[0] ?? "");
+  const [attachments, setAttachments] = useState<UploadAttachmentResult[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset so the same file can be re-selected
+    e.target.value = "";
+    setUploadingAttachment(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const result = await uploadChatAttachment(formData);
+      setAttachments((prev) => [...prev, result]);
+    } catch (err) {
+      console.error("Attachment upload failed:", err);
+    } finally {
+      setUploadingAttachment(false);
+    }
+  };
+
+  const handleRemoveAttachment = (storagePath: string) => {
+    setAttachments((prev) => prev.filter((a) => a.storagePath !== storagePath));
+  };
 
   // Sync selectedModel when the available list changes (e.g. on page mount).
   useEffect(() => {
@@ -108,6 +134,7 @@ export function AssistantChatbot({
 
   const handleSendMessage = async () => {
     const userMessage = inputValue;
+    const currentAttachments = attachments;
     const userMsg: Message = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -115,18 +142,25 @@ export function AssistantChatbot({
     };
     setMessages((prev) => [...prev, userMsg]);
     setInputValue("");
+    setAttachments([]);
     setIsTyping(true);
+
+    // Build the full message: text + attachment signed URLs so the agent can see them
+    const messageWithAttachments =
+      currentAttachments.length > 0
+        ? `${userMessage}\n\nAttached images:\n${currentAttachments.map((a) => a.signedUrl).join("\n")}`
+        : userMessage;
 
     try {
       let output: AssistantOutput;
 
       if (onSendMessage) {
-        output = await onSendMessage(userMessage, selectedModel || undefined);
+        output = await onSendMessage(messageWithAttachments, selectedModel || undefined);
       } else {
         const response = await fetch("/api/agent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: userMessage, sessionId }),
+          body: JSON.stringify({ message: messageWithAttachments, sessionId }),
         });
         if (!response.ok) throw new Error("Failed to get agent response");
         const data = (await response.json()) as { output: AssistantOutput; sessionId: string };
@@ -292,6 +326,33 @@ export function AssistantChatbot({
       {/* Chat Input */}
       <div className="p-4 border-t bg-white shrink-0">
         <div className="rounded-2xl border border-slate-200 bg-white focus-within:border-slate-300 focus-within:ring-2 focus-within:ring-slate-100">
+          {/* Attachment previews */}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {attachments.map((a) => (
+                <div key={a.storagePath} className="relative group h-16 w-16 shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={a.signedUrl}
+                    alt={a.filename}
+                    className="h-16 w-16 rounded-lg object-cover border border-slate-200"
+                  />
+                  <button
+                    onClick={() => handleRemoveAttachment(a.storagePath)}
+                    className="absolute -top-1.5 -right-1.5 h-4 w-4 flex items-center justify-center rounded-full bg-slate-700 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Remove attachment"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+              {uploadingAttachment && (
+                <div className="h-16 w-16 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                </div>
+              )}
+            </div>
+          )}
           <Textarea
             placeholder="Type your message..."
             rows={2}
@@ -301,12 +362,21 @@ export function AssistantChatbot({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                handleSendMessage();
+                void handleSendMessage();
               }
             }}
           />
           <div className="flex items-center justify-between px-2 pb-2 pt-1">
             <div className="flex items-center gap-1">
+            {/* Hidden file input — triggered via label htmlFor, not JS .click() */}
+            <input
+              id="chat-file-input"
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/webp,image/jpeg"
+              className="hidden"
+              onChange={handleFileChange}
+            />
             <DropdownMenu>
               <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
                 <Plus className="h-4 w-4" />
@@ -314,9 +384,18 @@ export function AssistantChatbot({
               <DropdownMenuContent side="top" align="start" className="w-48">
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>Attach</DropdownMenuLabel>
-                  <DropdownMenuItem>
-                    <ImageIcon className="h-4 w-4" />
-                    Media
+                  <DropdownMenuItem className="p-0">
+                    <label
+                      htmlFor={uploadingAttachment ? undefined : "chat-file-input"}
+                      className={`flex items-center gap-2 w-full px-2 py-1.5 cursor-pointer ${uploadingAttachment ? "opacity-50 pointer-events-none" : ""}`}
+                    >
+                      {uploadingAttachment ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ImageIcon className="h-4 w-4" />
+                      )}
+                      {uploadingAttachment ? "Uploading\u2026" : "Media"}
+                    </label>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
@@ -367,7 +446,7 @@ export function AssistantChatbot({
               size="icon"
               disabled={isTyping}
               className="h-8 w-8 rounded-full bg-slate-900 hover:bg-slate-700 text-white disabled:opacity-50"
-              onClick={handleSendMessage}
+              onClick={() => void handleSendMessage()}
             >
               <Send className="h-3.5 w-3.5" />
             </Button>

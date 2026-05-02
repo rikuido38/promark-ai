@@ -162,7 +162,6 @@ export async function getBrandContext(
           style_description: raw.illustration.style_description,
           style_image_urls: styleSampleUrls.filter((u): u is string => !!u),
           style_analysis: raw.illustration.style_analysis,
-          illustration_style_prompt: raw.illustration.illustration_style_prompt ?? "",
           brand_colour_palette: {
             palette_user_description: raw.illustration.brand_colour_palette?.palette_user_description,
             sample_image_urls: paletteImageUrls.filter((u): u is string => !!u),
@@ -182,7 +181,6 @@ export async function getBrandContext(
           characters: (raw.illustration.characters ?? []).map((c, i) => ({
             name: c.name,
             reference_image_url: characterData[i]?.reference_image_url ?? null,
-            reference_image_analysis: c.reference_image_analysis,
             character_prompt: c.character_prompt ?? "",
             characteristics: c.characteristics,
             age_group: c.age_group,
@@ -234,8 +232,7 @@ export function buildContextDocument(
       ? {
           style_description: illustration.style_description,
           style_image_paths: (illustration.style_samples ?? []).map((m) => m.url),
-          style_analysis: analyses?.styleAnalysis ?? "",
-          illustration_style_prompt: analyses?.illustrationStylePrompt ?? "",
+          style_analysis: "",
           brand_colour_palette: {
             palette_user_description: illustration.palette_description,
             sample_image_paths: (illustration.colour_palette?.sample_images ?? []).map(
@@ -257,8 +254,8 @@ export function buildContextDocument(
           characters: (illustration.characters ?? []).map((c, i) => ({
             name: c.name,
             reference_image_path: c.reference_image?.url ?? null,
-            reference_image_analysis: analyses?.characterAnalyses[i]?.referenceAnalysis ?? "",
-            character_prompt: analyses?.characterPrompts[i] ?? "",
+            reference_image_analysis: "",
+            character_prompt: "",
             characteristics: c.characteristics,
             age_group: c.age_group,
             guidelines: c.guidelines.map((g, gi) => ({

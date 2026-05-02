@@ -14,13 +14,21 @@ export function DraftAssistantSetup() {
   const { setMessageHandler, setAvailableModels } = useAIAssistant();
 
   useEffect(() => {
-    setAvailableModels(["gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5"]);
+    setAvailableModels(["gpt-image-2", "gpt-image-1.5"]);
 
     const handler = async (message: string, model?: string): Promise<AssistantOutput> => {
+      // The chatbot appends attachment URLs as "\n\nAttached images:\n{url}\n{url}".
+      // Split them out so we can send a clean prompt + structured URL list.
+      const attachSplit = message.split("\n\nAttached images:\n");
+      const prompt = attachSplit[0].trim();
+      const sampleImageUrls = attachSplit[1]
+        ? attachSplit[1].split("\n").map((u) => u.trim()).filter(Boolean)
+        : [];
+
       const res = await fetch("/api/generation/illustration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: message, model }),
+        body: JSON.stringify({ prompt, model, sampleImageUrls }),
       });
 
       if (!res.ok) {

@@ -14,10 +14,11 @@ const ALLOWED_IMAGE_MODELS = new Set(IMAGE_MODELS.map((m) => m.id));
 
 // ── POST /api/generation/illustration ────────────────────────────────────────
 /**
- * Body: { prompt: string, size?: "1024x1024" | "1024x1536" | "1536x1024" }
+ * Body: { prompt: string, model?: string, sampleImageUrls?: string[] }
  *
  * Delegates to the main agent with intent="direct" and target="generate_illustration".
  * The agent fetches brand context internally and errors if none is found.
+ * sampleImageUrls are passed as structured direction/reference lines in the user message.
  *
  * Returns: { output: AssistantOutput, sessionId: string }
  */
@@ -44,6 +45,13 @@ export async function POST(req: NextRequest) {
         ? body.model
         : DEFAULT_IMAGE_MODEL;
 
+    // sampleImageUrls: optional signed URLs of user-attached reference images.
+    const sampleImageUrls: string[] = Array.isArray(body.sampleImageUrls)
+      ? (body.sampleImageUrls as unknown[]).filter(
+          (u): u is string => typeof u === "string" && u.startsWith("https://"),
+        )
+      : [];
+
     // ── 2. Delegate to main agent ────────────────────────────────────────────────────
     setDefaultOpenAIKey(process.env.OPENAI_API_KEY ?? "");
 
@@ -54,10 +62,11 @@ export async function POST(req: NextRequest) {
       .single();
 
     const { output, sessionId } = await runMainAgent({
-      userMessage: `Generate an illustration: ${userPrompt}`,
+      userMessage: userPrompt,
       supabase,
       assistantName: org?.assistant_name ?? null,
       imageModel,
+      sampleImageUrls,
       intent: "direct",
       target: "generate_illustration",
     });
