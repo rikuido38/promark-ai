@@ -8,6 +8,7 @@ import { resolveAgentTool, resolveAllAgentTools } from "./agentRegistry";
 import type { AgentFactoryOptions } from "./agentRegistry";
 import type { RouteMode } from "./intentRouter";
 import type { AssistantOutput } from "@/types/agent";
+import type { GenerationSettings } from "@/types/generation-settings";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -142,6 +143,11 @@ export interface RunMainAgentOptions {
    * illustration subagent as direction/behaviour samples.
    */
   sampleImageUrls?: string[];
+  /**
+   * Generation settings from the chatbot settings dialog (quality, background,
+   * size, output format, compression).
+   */
+  generationSettings?: GenerationSettings;
 }
 
 export interface RunMainAgentResult {
@@ -169,6 +175,7 @@ export async function runMainAgent(
     target: explicitTarget,
     imageModel,
     sampleImageUrls,
+    generationSettings,
   } = options;
 
   console.log("[MainAgent] runMainAgent: request", {
@@ -178,7 +185,7 @@ export async function runMainAgent(
     userMessage,
   });
 
-  const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage };
+  const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage, generationSettings };
 
   const sessionId = incomingId ?? randomUUID();
   const session = getOrCreateSession(sessionId);

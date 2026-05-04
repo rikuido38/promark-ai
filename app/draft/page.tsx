@@ -29,15 +29,15 @@ export default function DraftPage() {
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="images" className="w-full">
+            <Tabs defaultValue="illustrations" className="w-full">
               <TabsList className="w-full">
-                <TabsTrigger value="images" className="flex-1 gap-2">
-                  <ImageIcon className="w-4 h-4" />
-                  Images
-                </TabsTrigger>
                 <TabsTrigger value="illustrations" className="flex-1 gap-2">
                   <Sparkles className="w-4 h-4" />
                   Illustrations
+                </TabsTrigger>
+                <TabsTrigger value="images" className="flex-1 gap-2">
+                  <ImageIcon className="w-4 h-4" />
+                  Images
                 </TabsTrigger>
                 <TabsTrigger value="videos" className="flex-1 gap-2">
                   <Video className="w-4 h-4" />
@@ -45,12 +45,12 @@ export default function DraftPage() {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="images">
-                <DraftGrid mediaType="image" />
-              </TabsContent>
-
               <TabsContent value="illustrations">
                 <DraftGrid mediaType="illustration" />
+              </TabsContent>
+
+              <TabsContent value="images">
+                <DraftGrid mediaType="image" />
               </TabsContent>
 
               <TabsContent value="videos">

@@ -9,6 +9,7 @@ import sharp from "sharp";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BrandIllustrationContext } from "@/types/brand-context";
 import type { PaletteColor } from "@/types/settings";
+import type { GenerationSettings } from "@/types/generation-settings";
 import { SUPABASE_BUCKET_NAME, DEFAULT_ORG_ID } from "@/utils/constants";
 import { getBrandContext } from "@/services/brand-context";
 
@@ -159,7 +160,7 @@ async function fuzzyMatchGuidelineImages(
 function buildIllustrationPrompt(
   ill: NonNullable<BrandIllustrationContext["illustration"]>,
   brand: BrandIllustrationContext["brand"],
-  relevantChars: CapturedCharacter[],
+  _relevantChars: CapturedCharacter[],
   userPrompt: string,
   imageLabels: string[],
 ): string {
@@ -181,9 +182,7 @@ function buildIllustrationPrompt(
     image_labels: imageLabels,
   };
 
-  // suppress unused param lint — relevantChars may be used in future extensions
-  void relevantChars;
-
+  // _relevantChars reserved for future use (character-specific prompt injection)
   return Mustache.render(loadTemplate("illustration-prompt.mustache"), view).trim();
 }
 
@@ -200,9 +199,10 @@ function buildIllustrationPrompt(
  */
 export function createBrandIllustrationAgent(
   supabase: SupabaseClient,
-  options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string },
+  options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string; generationSettings?: GenerationSettings },
 ): Agent {
-  const imageModel = options?.imageModel ?? "gpt-image-2";
+  const imageModel = options?.imageModel ?? options?.generationSettings?.model ?? "gpt-image-2";
+  const genSettings = options?.generationSettings;
   // The original user message is used verbatim as the scene prompt, bypassing
   // any LLM rewriting of the user_prompt parameter.
   const originalUserMessage = options?.userMessage ?? "";
@@ -420,7 +420,13 @@ export function createBrandIllustrationAgent(
       const requestPayload = {
         model: "gpt-5.4",
         input: [{ role: "user", content: inputContent }],
-        tools: [{ type: "image_generation", model: imageModel, quality: "high" }],
+        tools: [{
+          type: "image_generation",
+          model: imageModel,
+          quality: genSettings?.quality ?? "high",
+          ...(genSettings?.background && genSettings.background !== "auto" ? { background: genSettings.background } : {}),
+          ...(genSettings?.size && genSettings.size !== "auto" ? { size: genSettings.size } : {}),
+        }],
       };
       console.log("[BrandIllustrationAgent] responses.create payload:", JSON.stringify(
         requestPayload,
@@ -458,16 +464,34 @@ export function createBrandIllustrationAgent(
     async execute() {
       if (!capturedImageBuffer) throw new Error("generate_illustration must be called first.");
 
-      const compressed = await sharp(capturedImageBuffer)
-        .png({ effort: 10, adaptiveFiltering: true })
-        .toBuffer();
+      const fmt = genSettings?.outputFormat ?? "png";
+      const compression = genSettings?.compression ?? 85;
 
-      const filename = `${crypto.randomUUID()}.png`;
+      let compressed: Buffer;
+      let contentType: string;
+      let ext: string;
+      if (fmt === "jpeg") {
+        compressed = await sharp(capturedImageBuffer).jpeg({ quality: compression }).toBuffer();
+        contentType = "image/jpeg";
+        ext = "jpg";
+      } else if (fmt === "webp") {
+        compressed = await sharp(capturedImageBuffer).webp({ quality: compression }).toBuffer();
+        contentType = "image/webp";
+        ext = "webp";
+      } else {
+        compressed = await sharp(capturedImageBuffer)
+          .png({ effort: 10, adaptiveFiltering: true })
+          .toBuffer();
+        contentType = "image/png";
+        ext = "png";
+      }
+
+      const filename = `${crypto.randomUUID()}.${ext}`;
       const storagePath = `temp/${DEFAULT_ORG_ID}/${filename}`;
 
       const { error: uploadError } = await supabase.storage
         .from(SUPABASE_BUCKET_NAME)
-        .upload(storagePath, compressed, { contentType: "image/png", upsert: false });
+        .upload(storagePath, compressed, { contentType, upsert: false });
 
       if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
 

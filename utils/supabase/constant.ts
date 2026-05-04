@@ -12,4 +12,5 @@ export const TABLES = {
   ORGANIZATION_INTEGRATIONS: "organization_integrations",
   USER_INTEGRATIONS: "user_integrations",
   USER_DRAFTS: "user_drafts",
+  TEMPLATES: "templates",
 } as const;

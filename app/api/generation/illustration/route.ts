@@ -9,6 +9,7 @@ import { runMainAgent } from "@/lib/agents/MainAgent";
 import { setDefaultOpenAIKey, MaxTurnsExceededError } from "@openai/agents";
 import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS } from "@/types/agent";
 import type { AssistantOutput } from "@/types/agent";
+import type { GenerationSettings } from "@/types/generation-settings";
 
 const ALLOWED_IMAGE_MODELS = new Set(IMAGE_MODELS.map((m) => m.id));
 
@@ -52,6 +53,10 @@ export async function POST(req: NextRequest) {
         )
       : [];
 
+    // generationSettings: optional settings from the chatbot settings dialog.
+    const generationSettings: GenerationSettings | undefined =
+      body.settings && typeof body.settings === "object" ? (body.settings as GenerationSettings) : undefined;
+
     // ── 2. Delegate to main agent ────────────────────────────────────────────────────
     setDefaultOpenAIKey(process.env.OPENAI_API_KEY ?? "");
 
@@ -67,6 +72,7 @@ export async function POST(req: NextRequest) {
       assistantName: org?.assistant_name ?? null,
       imageModel,
       sampleImageUrls,
+      generationSettings,
       intent: "direct",
       target: "generate_illustration",
     });

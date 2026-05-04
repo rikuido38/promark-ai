@@ -17,7 +17,11 @@ import {
 import type { ConnectedTool } from "@/types/models";
 import type { AssistantOutput, MediaItem } from "@/types/agent";
 import { saveDraft } from "@/app/draft/actions";
+import type { DraftMediaType } from "@/app/draft/actions";
 import { uploadChatAttachment, type UploadAttachmentResult } from "@/app/actions/upload-attachment";
+import { GenerationSettingsButton } from "@/components/generation-settings-dialog";
+import type { GenerationSettings, GenerationTabKey } from "@/types/generation-settings";
+import { DEFAULT_GENERATION_SETTINGS, tabKeyFromPageKey } from "@/types/generation-settings";
 
 type Message = {
   role: "assistant" | "user";
@@ -29,7 +33,7 @@ type Message = {
 
 /** @deprecated Use AssistantOutput directly */
 export type MessageHandlerResult = AssistantOutput;
-export type MessageHandler = (message: string, model?: string) => Promise<AssistantOutput>;
+export type MessageHandler = (message: string, model?: string, settings?: GenerationSettings) => Promise<AssistantOutput>;
 
 export function AssistantChatbot({
   title = "AI Assistant",
@@ -39,6 +43,8 @@ export function AssistantChatbot({
   onClose,
   onSendMessage,
   availableModels,
+  pageKey,
+  defaultSettings,
 }: {
   title?: string;
   systemMessage?: string;
@@ -47,6 +53,10 @@ export function AssistantChatbot({
   onClose?: () => void;
   onSendMessage?: MessageHandler;
   availableModels?: string[];
+  /** Page-scoped context key, e.g. "draft-illustration". Drives generation settings. */
+  pageKey?: string;
+  /** Initial generation settings overrides. */
+  defaultSettings?: Partial<GenerationSettings>;
 }) {
   const figmaTool = connectedTools.find((t) => t.slug === "figma");
   const buildInitialMessages = (): Message[] => {
@@ -75,6 +85,11 @@ export function AssistantChatbot({
   const [selectedModel, setSelectedModel] = useState<string>(availableModels?.[0] ?? "");
   const [attachments, setAttachments] = useState<UploadAttachmentResult[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [generationSettings, setGenerationSettings] = useState<GenerationSettings>(() => {
+    const derivedTabKey: GenerationTabKey | undefined = pageKey ? tabKeyFromPageKey(pageKey) : undefined;
+    const base = derivedTabKey ? DEFAULT_GENERATION_SETTINGS[derivedTabKey] : DEFAULT_GENERATION_SETTINGS.illustration;
+    return { ...base, ...defaultSettings };
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,8 +125,9 @@ export function AssistantChatbot({
     if (draftState[media.filename]) return;
     if (!media.storagePath) return;
     setDraftState((prev) => ({ ...prev, [media.filename]: "saving" }));
+    const mediaType = (pageKey ? tabKeyFromPageKey(pageKey) : undefined) ?? (media.type as DraftMediaType);
     try {
-      await saveDraft(media.storagePath, media.filename, media.type as "image" | "video");
+      await saveDraft(media.storagePath, media.filename, mediaType);
       setDraftState((prev) => ({ ...prev, [media.filename]: "saved" }));
     } catch (err) {
       console.error("Save draft failed:", err);
@@ -155,7 +171,7 @@ export function AssistantChatbot({
       let output: AssistantOutput;
 
       if (onSendMessage) {
-        output = await onSendMessage(messageWithAttachments, selectedModel || undefined);
+        output = await onSendMessage(messageWithAttachments, selectedModel || undefined, generationSettings);
       } else {
         const response = await fetch("/api/agent", {
           method: "POST",
@@ -440,6 +456,21 @@ export function AssistantChatbot({
                 </SelectContent>
               </Select>
             )}
+
+            {pageKey && (() => {
+              const derivedTabKey = tabKeyFromPageKey(pageKey);
+              return derivedTabKey ? (
+                <GenerationSettingsButton
+                  tabKey={derivedTabKey}
+                  settings={generationSettings}
+                  availableModels={availableModels ?? []}
+                  onSettingsChange={(s) => {
+                    setGenerationSettings(s);
+                    if (availableModels?.includes(s.model)) setSelectedModel(s.model);
+                  }}
+                />
+              ) : null;
+            })()}
             </div>
 
             <Button

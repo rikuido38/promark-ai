@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Agent, Tool } from "@openai/agents";
 import type { RouteMode } from "./intentRouter";
 import { createBrandIllustrationAgent } from "./subagents/brand-illustration-agent";
+import type { GenerationSettings } from "@/types/generation-settings";
 
 // ---------------------------------------------------------------------------
 // Agent Registry
@@ -42,6 +43,8 @@ export interface AgentFactoryOptions {
   sampleImageUrls?: string[];
   /** The original user message, forwarded verbatim as the illustration scene prompt. */
   userMessage?: string;
+  /** Generation settings from the chatbot settings dialog. */
+  generationSettings?: GenerationSettings;
 }
 
 export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
