@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -40,7 +40,26 @@ function stripScripts(html: string): string {
   return html.replaceAll(SCRIPT_TAG_RE, "");
 }
 
-export function AssistantChatbot({
+/** Imperative handle exposed via ref for programmatic message injection. */
+export interface AssistantChatbotHandle {
+  /** Immediately sends a message as if the user typed and submitted it. */
+  sendMessage: (text: string) => void;
+}
+
+export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
+  title?: string;
+  systemMessage?: string;
+  avatarUrl?: string | null;
+  connectedTools?: ConnectedTool[];
+  onClose?: () => void;
+  onSendMessage?: MessageHandler;
+  availableModels?: string[];
+  pageKey?: string;
+  defaultSettings?: Partial<GenerationSettings>;
+  autoSendMessage?: string;
+  initialModel?: string;
+  initialMessages?: Message[];
+}>(function AssistantChatbot({
   title = "AI Assistant",
   systemMessage = "How can I help you?",
   avatarUrl = null,
@@ -53,25 +72,7 @@ export function AssistantChatbot({
   autoSendMessage,
   initialModel,
   initialMessages,
-}: {
-  title?: string;
-  systemMessage?: string;
-  avatarUrl?: string | null;
-  connectedTools?: ConnectedTool[];
-  onClose?: () => void;
-  onSendMessage?: MessageHandler;
-  availableModels?: string[];
-  /** Page-scoped context key, e.g. "draft-illustration". Drives generation settings. */
-  pageKey?: string;
-  /** Initial generation settings overrides. */
-  defaultSettings?: Partial<GenerationSettings>;
-  /** If provided, automatically sends this message once on initial mount. */
-  autoSendMessage?: string;
-  /** If provided, uses this as the initial selected model (overrides availableModels[0]). */
-  initialModel?: string;
-  /** Pre-populate the chat with restored history messages (e.g. from DB). */
-  initialMessages?: Message[];
-}) {
+}, ref) {
   const figmaTool = connectedTools.find((t) => t.slug === "figma");
   const buildInitialMessages = (): Message[] => {
     // Restored history takes priority — skip the welcome message entirely.
@@ -111,6 +112,12 @@ export function AssistantChatbot({
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const autoSentRef = useRef(false);
+
+  // Expose sendMessage imperatively so parent components (e.g. ThreadWorkspace)
+  // can inject messages from outside (e.g. from the image editor "Send to AI" button).
+  useImperativeHandle(ref, () => ({
+    sendMessage: (text: string) => void handleSendMessage(text),
+  }));
 
   // Auto-send on first mount if a message was provided (e.g. from studio prompt input).
   // NOTE: autoSentRef.current is set INSIDE the timeout callback (not before) so that
@@ -522,4 +529,4 @@ export function AssistantChatbot({
       </div>
     </div>
   );
-}
+});

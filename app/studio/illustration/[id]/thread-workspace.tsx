@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { AssistantChatbot, type Message } from "@/components/assistant-chatbot";
+import { AssistantChatbot, type AssistantChatbotHandle, type Message } from "@/components/assistant-chatbot";
 import { ImagePreviewPanel } from "./image-preview-panel";
 import { saveChatMessage, markNewChatDone } from "./actions";
 import type { MediaItem, AssistantOutput } from "@/types/agent";
@@ -53,12 +53,7 @@ function historyToMessages(history: StudioThreadChat[]): Message[] {
     id: row.id,
     role: row.role,
     content: row.content,
-    medias: row.image_signed_urls.map((url, i) => ({
-      filename: row.image_storage_paths[i] ?? url,
-      signedUrl: url,
-      type: "image" as const,
-      storagePath: row.image_storage_paths[i],
-    })),
+    medias: [],
   }));
 }
 
@@ -73,6 +68,13 @@ export function ThreadWorkspace({
   // For the actual auto-send decision we use chatHistory.length === 0 so
   // there is no dependency on DB round-trip timing.
   const isNewChatLocal = chatHistory.length === 0;
+  const chatbotRef = useRef<AssistantChatbotHandle>(null);
+
+  const handleEditorExport = (base64: string) => {
+    chatbotRef.current?.sendMessage(
+      `Please refine this edited image.\n\nAttached images:\n${base64}`,
+    );
+  };
 
   // Flip is_new_chat to false immediately on mount (parallel with AI auto-trigger)
   useEffect(() => {
@@ -133,6 +135,7 @@ export function ThreadWorkspace({
       <ResizablePanel defaultSize={45} minSize={30}>
         <div className="h-full flex flex-col overflow-hidden bg-white">
           <AssistantChatbot
+            ref={chatbotRef}
             title="Illustration Assistant"
             systemMessage="Hi! Describe what you'd like to illustrate and I'll generate on-brand illustrations for you."
             onSendMessage={handleSendMessage}
@@ -149,7 +152,7 @@ export function ThreadWorkspace({
 
       {/* Right: Image Preview */}
       <ResizablePanel defaultSize={55} minSize={30}>
-        <ImagePreviewPanel medias={allMedias} />
+        <ImagePreviewPanel medias={allMedias} onExportBase64={handleEditorExport} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );
