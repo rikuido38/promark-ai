@@ -1,21 +1,26 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Agent, Tool } from "@openai/agents";
+import type { StructuredTool } from "@langchain/core/tools";
 import type { RouteMode } from "./intentRouter";
-import { createBrandIllustrationAgent } from "./subagents/brand-illustration-agent";
+import { createBrandIllustrationTool } from "./subagents/brand-illustration-agent";
 import type { GenerationSettings } from "@/types/generation-settings";
 
 // ---------------------------------------------------------------------------
 // Agent Registry
 //
-// Each entry describes a named specialised agent: its routing mode, the tool
-// name/description the main agent sees, and a factory that creates the Agent
-// instance (pre-bound to any request-level dependencies like Supabase).
+// Each entry describes a named specialised subagent: its routing mode, the
+// tool name/description the main agent sees, and a factory that creates the
+// LangChain StructuredTool instance (pre-bound to per-request dependencies).
 //
-// The main agent receives these as tools via agent.asTool(), so it can call
-// them by toolName during its reasoning loop.
+// The main (deepagents) orchestrator receives these as LangChain tools so it
+// can call them during its reasoning loop.
+//
+// Routing modes:
+//   - "direct"   → single specialist tool (1:1 intent → tool mapping)
+//   - "pipeline" → developer-defined multi-step workflow tool
+//   - "agentic"  → open-ended; orchestrator picks freely from all tools
 //
 // To register a new subagent or pipeline:
-//   1. Implement the Agent factory in lib/agents/subagents/ (or pipelines/)
+//   1. Implement the tool factory in lib/agents/subagents/ (or pipelines/)
 //   2. Add an entry to AGENT_REGISTRY below
 //   3. (Optional) Add a RouteRule in intentRouter.ts for automatic classification
 //      — or pass intent + target directly via RunMainAgentOptions
@@ -29,15 +34,13 @@ export interface AgentRegistryEntry {
   toolName: string;
   /** Description shown to the main agent so it knows when to call this tool. */
   toolDescription: string;
-  /** Factory — receives per-request dependencies, returns a bound Agent. */
-  createAgent: (supabase: SupabaseClient, options?: AgentFactoryOptions) => Agent;
-  /** Max turns allowed for this subagent run. Defaults to 10 if omitted. */
-  maxTurns?: number;
+  /** Factory — receives per-request dependencies, returns a bound StructuredTool. */
+  createTool: (supabase: SupabaseClient, options?: AgentFactoryOptions) => StructuredTool;
 }
 
 /** Options passed through from the API call into every subagent factory. */
 export interface AgentFactoryOptions {
-  /** Image generation model override (e.g. "dall-e-3"). Defaults to "gpt-image-1". */
+  /** Image generation model override (e.g. "dall-e-3"). Defaults to "gpt-image-2". */
   imageModel?: string;
   /** Pre-loaded sample image URLs from the user's chat attachments. */
   sampleImageUrls?: string[];
@@ -55,8 +58,7 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     toolDescription:
       "Generate an on-brand illustration or image from a user prompt. " +
       "Use this whenever the user asks to create, generate, or draw an illustration, image, or visual.",
-    createAgent: (supabase, options) => createBrandIllustrationAgent(supabase, options),
-    maxTurns: 20,
+    createTool: (supabase, options) => createBrandIllustrationTool(supabase, options),
   },
   // ── Add new agents/pipelines here ───────────────────────────────────────
   // compile_brand_context: {
@@ -64,7 +66,7 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
   //   mode: "pipeline",
   //   toolName: "compile_brand_context",
   //   toolDescription: "Compile and cache the brand DNA into a structured context object.",
-  //   createAgent: createBrandContextCompilerAgent,
+  //   createTool: (supabase, options) => createBrandContextCompilerTool(supabase, options),
   // },
 };
 
@@ -73,33 +75,26 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns a single agent-as-tool for a given registry target ID, or null
+ * Returns a single StructuredTool for a given registry target ID, or null
  * if the target isn't registered.
  */
 export function resolveAgentTool(
   target: string,
   supabase: SupabaseClient,
   options?: AgentFactoryOptions,
-): Tool | null {
+): StructuredTool | null {
   const entry = AGENT_REGISTRY[target];
   if (!entry) return null;
-  return entry.createAgent(supabase, options).asTool({
-    toolName: entry.toolName,
-    toolDescription: entry.toolDescription,
-    ...(entry.maxTurns !== undefined && { maxTurns: entry.maxTurns }),
-  });
+  return entry.createTool(supabase, options);
 }
 
 /**
- * Returns all registered agents as tools — used in agentic mode where the
- * main agent can freely choose which to call.
+ * Returns all registered agents as StructuredTools — used in agentic mode
+ * where the main orchestrator can freely choose which to call.
  */
-export function resolveAllAgentTools(supabase: SupabaseClient, options?: AgentFactoryOptions): Tool[] {
-  return Object.values(AGENT_REGISTRY).map((entry) =>
-    entry.createAgent(supabase, options).asTool({
-      toolName: entry.toolName,
-      toolDescription: entry.toolDescription,
-      ...(entry.maxTurns !== undefined && { maxTurns: entry.maxTurns }),
-    }),
-  );
+export function resolveAllAgentTools(
+  supabase: SupabaseClient,
+  options?: AgentFactoryOptions,
+): StructuredTool[] {
+  return Object.values(AGENT_REGISTRY).map((entry) => entry.createTool(supabase, options));
 }

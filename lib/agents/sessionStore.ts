@@ -1,33 +1,38 @@
-import { MemorySession } from "@openai/agents";
+import { MemorySaver } from "@langchain/langgraph";
 
 /**
- * Process-level in-memory store mapping sessionId → MemorySession.
+ * Shared MemorySaver instance used as the LangGraph checkpointer.
  *
- * This is intentionally simple: sessions live as long as the Next.js process
- * is running. Replace with a persistent store (Redis, DB) when needed without
- * changing any call sites — just swap the Map operations in getOrCreateSession.
+ * A single instance is shared across all agent runs so that conversation
+ * history is retained per thread_id across multiple turns. Replace with a
+ * persistent checkpointer (e.g. PostgresSaver, RedisSaver) when needed
+ * without changing any call sites — just swap this export.
  */
-const store = new Map<string, MemorySession>();
+export const memorySaver = new MemorySaver();
 
 /**
- * Returns the existing MemorySession for a given ID, or creates and registers
- * a new one if none exists yet.
+ * Process-level set of known session IDs.
+ *
+ * LangGraph manages actual message history via the checkpointer; this set is
+ * kept only for counting and explicit-deletion semantics.
  */
-export function getOrCreateSession(sessionId: string): MemorySession {
-  let session = store.get(sessionId);
-  if (!session) {
-    session = new MemorySession({ sessionId });
-    store.set(sessionId, session);
-  }
-  return session;
+const sessionIds = new Set<string>();
+
+/**
+ * Registers a session ID if not already known and returns it.
+ * Call this once per conversation turn before invoking the agent.
+ */
+export function getOrCreateSession(sessionId: string): string {
+  sessionIds.add(sessionId);
+  return sessionId;
 }
 
 /** Remove a session from the store (e.g. on logout or explicit reset). */
 export function deleteSession(sessionId: string): void {
-  store.delete(sessionId);
+  sessionIds.delete(sessionId);
 }
 
 /** Total number of active in-memory sessions (useful for observability). */
 export function activeSessionCount(): number {
-  return store.size;
+  return sessionIds.size;
 }

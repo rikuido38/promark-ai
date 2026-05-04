@@ -1,8 +1,10 @@
-import { Agent, run } from "@openai/agents";
+import { createDeepAgent } from "deepagents";
+import { ChatOpenAI } from "@langchain/openai";
+import { HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getOrCreateSession } from "./sessionStore";
+import { memorySaver, getOrCreateSession } from "./sessionStore";
 import { classifyIntent } from "./intentRouter";
 import { resolveAgentTool, resolveAllAgentTools } from "./agentRegistry";
 import type { AgentFactoryOptions } from "./agentRegistry";
@@ -41,8 +43,6 @@ const AssistantOutputSchema = z.object({
     .describe(
       "How confident the assistant is that this response fully answers the request. 0 = no confidence, 1 = fully confident.",
     ),
-  // metadata is omitted from the structured output schema because OpenAI
-  // does not support free-form additionalProperties. It is injected as {} below.
 });
 
 // ---------------------------------------------------------------------------
@@ -62,8 +62,7 @@ ALWAYS respond with a valid JSON object matching this exact shape:
 {
   "text": "<your reply to the user, HTML allowed>",
   "medias": [],
-  "confidenceScore": <0.0 to 1.0>,
-  "metadata": {}
+  "confidenceScore": <0.0 to 1.0>
 }
 
 Media handling — IMPORTANT:
@@ -89,16 +88,6 @@ function buildInstructions(assistantName: string | null, date: string): string {
     : "";
   return `${nameLine}\nToday's date is ${date}.\n\n${BASE_INSTRUCTIONS}`;
 }
-
-/**
- * Base agent — cloned per run so each turn gets fresh dynamic instructions.
- */
-const baseAgent = new Agent({
-  name: "Main Orchestrator",
-  instructions: BASE_INSTRUCTIONS,
-  model: MODEL,
-  outputType: AssistantOutputSchema,
-});
 
 // ---------------------------------------------------------------------------
 // Public run function
@@ -163,6 +152,13 @@ export interface RunMainAgentResult {
  * in-memory store. The SDK prepends the full conversation history before the
  * model call and persists the new turn after it completes.
  */
+/**
+ * Run the main orchestrator agent for a single conversation turn.
+ *
+ * The session identified by `sessionId` is used as the LangGraph thread_id so
+ * the MemorySaver checkpointer automatically retains conversation history
+ * across turns. A new UUID is generated when no sessionId is provided.
+ */
 export async function runMainAgent(
   options: RunMainAgentOptions,
 ): Promise<RunMainAgentResult> {
@@ -187,8 +183,7 @@ export async function runMainAgent(
 
   const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage, generationSettings };
 
-  const sessionId = incomingId ?? randomUUID();
-  const session = getOrCreateSession(sessionId);
+  const sessionId = getOrCreateSession(incomingId ?? randomUUID());
 
   // Stamp the current date at call time so every turn reflects the real date.
   const currentDate = new Date().toLocaleDateString("en-GB", {
@@ -219,19 +214,58 @@ export async function runMainAgent(
     tools = singleTool ? [singleTool] : [];
   }
 
-  const agent = baseAgent.clone({
-    instructions: buildInstructions(assistantName, currentDate),
+  // ── Build agent (per-request to allow dynamic instructions + tools) ───────
+  // responseFormat is intentionally omitted — deepagents' SupportedResponseFormat
+  // type does not accept Zod schemas from an incompatible langchain version.
+  // The system prompt instructs the model to return JSON; parseLastAiMessage()
+  // extracts and parses it from the final AI message.
+  const agent = createDeepAgent({
+    model: new ChatOpenAI({ model: MODEL, temperature: 0 }),
+    systemPrompt: buildInstructions(assistantName, currentDate),
     tools,
+    checkpointer: memorySaver,
   });
 
-  const result = await run(agent, userMessage, { session });
+  const result = await agent.invoke(
+    { messages: [new HumanMessage(userMessage)] },
+    { configurable: { thread_id: sessionId } },
+  );
 
-  // Merge the structured output with the metadata field that was omitted
-  // from the schema (OpenAI rejects free-form additionalProperties).
+  // Extract structured output — deepagents surfaces it under `structuredResponse`
+  // when responseFormat is a Zod schema, falling back to parsing the last AI message.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = (result as any).structuredResponse ?? parseLastAiMessage(result.messages);
+
   const output: AssistantOutput = {
-    ...(result.finalOutput as Omit<AssistantOutput, "metadata">),
+    text: raw?.text ?? "",
+    medias: raw?.medias ?? [],
+    confidenceScore: raw?.confidenceScore ?? 0,
     metadata: {},
   };
 
   return { output, sessionId };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Fallback: extract and JSON-parse the last AI message from the graph output
+ * when structured output was not surfaced by the runtime.
+ */
+function parseLastAiMessage(messages: unknown[]): Partial<AssistantOutput> {
+  if (!Array.isArray(messages)) return {};
+  const lastAi = [...messages].reverse().find(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (m: any) => typeof m._getType === "function" && m._getType() === "ai",
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const content = (lastAi as any)?.content;
+  if (typeof content !== "string") return {};
+  try {
+    return JSON.parse(content) as Partial<AssistantOutput>;
+  } catch {
+    return { text: content };
+  }
 }

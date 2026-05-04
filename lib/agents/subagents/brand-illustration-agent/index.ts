@@ -1,4 +1,7 @@
-import { Agent, tool } from "@openai/agents";
+import { tool } from "@langchain/core/tools";
+import { createDeepAgent } from "deepagents";
+import { ChatOpenAI } from "@langchain/openai";
+import { HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -187,9 +190,13 @@ function buildIllustrationPrompt(
 }
 
 /**
- * Creates the Brand Illustration Agent bound to a Supabase client.
+ * Creates the Brand Illustration Tool bound to a Supabase client.
  *
- * Pipeline:
+ * Returns a LangChain StructuredTool that the main agent calls directly.
+ * Internally, each invocation spins up a fresh per-request ReAct agent with
+ * its own closure state so concurrent calls never interfere.
+ *
+ * Inner pipeline (LLM-orchestrated):
  *   fetch_brand_context
  *   → [fetch_character_references]   (if characters are mentioned)
  *   → generate_illustration           (builds prompt inline from brand context;
@@ -197,10 +204,73 @@ function buildIllustrationPrompt(
  *                                      image order: char ref → guideline → user sample)
  *   → upload_illustration
  */
-export function createBrandIllustrationAgent(
+export function createBrandIllustrationTool(
   supabase: SupabaseClient,
   options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string; generationSettings?: GenerationSettings },
-): Agent {
+) {
+  const toolDescription =
+    "Generate an on-brand illustration or image from a user prompt. " +
+    "Use this whenever the user asks to create, generate, or draw an illustration, image, or visual.";
+
+  return tool(
+    async ({ user_request }: { user_request: string }) => {
+      // Build a fresh inner agent with per-invocation closure state
+      const innerAgent = buildIllustrationAgent(supabase, options);
+      const result = await innerAgent.invoke({
+        messages: [new HumanMessage(user_request)],
+      });
+
+      // Find the upload_illustration tool result which contains the signedUrl JSON.
+      // The outer main agent needs this JSON to populate medias[].
+      const messages: Array<{ content: unknown }> = result.messages ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const uploadResult = [...messages].reverse().find((m: any) => {
+        if (typeof m._getType !== "function" || m._getType() !== "tool") return false;
+        const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+        try { return !!JSON.parse(content)?.signedUrl; } catch { return false; }
+      });
+      if (uploadResult) {
+        const content = typeof uploadResult.content === "string"
+          ? uploadResult.content
+          : JSON.stringify(uploadResult.content);
+        // Re-serialize to ensure the outer agent receives clean JSON with type hint
+        try {
+          const parsed = JSON.parse(content);
+          return JSON.stringify({ ...parsed, type: "image" });
+        } catch {
+          return content;
+        }
+      }
+      // Fallback: return the last AI message if no upload result found
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lastAiMsg = [...messages].reverse().find((m: any) => {
+        return typeof m._getType === "function" && m._getType() === "ai";
+      });
+      return typeof lastAiMsg?.content === "string"
+        ? lastAiMsg.content
+        : JSON.stringify(lastAiMsg?.content ?? "Illustration pipeline complete.");
+    },
+    {
+      name: "generate_illustration",
+      description: toolDescription,
+      schema: z.object({
+        user_request: z
+          .string()
+          .describe("The user's illustration request, copied verbatim."),
+      }),
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inner agent builder — called fresh for every outer tool invocation so each
+// request gets isolated closure state (capturedContext, capturedCharacters,
+// capturedImageBuffer). Do NOT hoist this to module scope.
+// ---------------------------------------------------------------------------
+function buildIllustrationAgent(
+  supabase: SupabaseClient,
+  options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string; generationSettings?: GenerationSettings },
+) {
   const imageModel = options?.imageModel ?? options?.generationSettings?.model ?? "gpt-image-2";
   const genSettings = options?.generationSettings;
   // The original user message is used verbatim as the scene prompt, bypassing
@@ -218,12 +288,8 @@ export function createBrandIllustrationAgent(
 
   // ── Tool: fetch_brand_context ─────────────────────────────────────────────
 
-  const fetchBrandContextTool = tool({
-    name: "fetch_brand_context",
-    description:
-      "Load the compiled brand illustration context. Must be called first before any other tool.",
-    parameters: z.object({}),
-    async execute() {
+  const fetchBrandContextTool = tool(
+    async () => {
       capturedContext = await getBrandContext(supabase);
       if (!capturedContext) {
         throw new Error(
@@ -244,20 +310,18 @@ export function createBrandIllustrationAgent(
         },
       });
     },
-  });
+    {
+      name: "fetch_brand_context",
+      description:
+        "Load the compiled brand illustration context. Must be called first before any other tool.",
+      schema: z.object({}),
+    },
+  );
 
   // ── Tool: fetch_character_references ─────────────────────────────────────
 
-  const fetchCharacterReferencesTool = tool({
-    name: "fetch_character_references",
-    description:
-      "Download reference images for named brand characters. Call when the user's request mentions specific brand characters. Reference images fix facial features, colours, and proportions for the illustration.",
-    parameters: z.object({
-      character_names: z
-        .array(z.string())
-        .describe("Exact names of brand characters to fetch reference images for"),
-    }),
-    async execute({ character_names }) {
+  const fetchCharacterReferencesTool = tool(
+    async ({ character_names }: { character_names: string[] }) => {
       if (!capturedContext) throw new Error("fetch_brand_context must be called first.");
 
       const allChars = capturedContext.illustration?.characters ?? [];
@@ -316,34 +380,30 @@ export function createBrandIllustrationAgent(
 
       return results.join("\n");
     },
-  });
+    {
+      name: "fetch_character_references",
+      description:
+        "Download reference images for named brand characters. Call when the user's request mentions specific brand characters. Reference images fix facial features, colours, and proportions for the illustration.",
+      schema: z.object({
+        character_names: z
+          .array(z.string())
+          .describe("Exact names of brand characters to fetch reference images for"),
+      }),
+    },
+  );
 
   // ── Tool: generate_illustration ───────────────────────────────────────────
 
-  const generateIllustrationTool = tool({
-    name: "generate_illustration",
-    description:
-      "Generate the on-brand vector illustration. Must be called after fetch_brand_context (and fetch_character_references if characters are requested).",
-    parameters: z.object({
-      user_prompt: z
-        .string()
-        .describe(
-          "The user's message copied verbatim (typo fixes only). Do NOT rewrite, expand, or add any character descriptions, roles, style instructions, or composition details.",
-        ),
-      character_names: z
-        .array(z.string())
-        .default([])
-        .describe(
-          "Brand character names to include. Must match those loaded with fetch_character_references.",
-        ),
-      sample_image_urls: z
-        .array(z.string())
-        .default([])
-        .describe(
-          "URLs of images the user attached as direction or behaviour samples. These come after character reference images.",
-        ),
-    }),
-    async execute({ user_prompt, character_names, sample_image_urls }) {
+  const generateIllustrationTool = tool(
+    async ({
+      user_prompt,
+      character_names,
+      sample_image_urls,
+    }: {
+      user_prompt: string;
+      character_names: string[];
+      sample_image_urls: string[];
+    }) => {
       if (!capturedContext?.illustration) {
         throw new Error("fetch_brand_context must be called first.");
       }
@@ -452,16 +512,36 @@ export function createBrandIllustrationAgent(
 
       return "Illustration generated successfully.";
     },
-  });
+    {
+      name: "generate_illustration",
+      description:
+        "Generate the on-brand vector illustration. Must be called after fetch_brand_context (and fetch_character_references if characters are requested).",
+      schema: z.object({
+        user_prompt: z
+          .string()
+          .describe(
+            "The user's message copied verbatim (typo fixes only). Do NOT rewrite, expand, or add any character descriptions, roles, style instructions, or composition details.",
+          ),
+        character_names: z
+          .array(z.string())
+          .default([])
+          .describe(
+            "Brand character names to include. Must match those loaded with fetch_character_references.",
+          ),
+        sample_image_urls: z
+          .array(z.string())
+          .default([])
+          .describe(
+            "URLs of images the user attached as direction or behaviour samples. These come after character reference images.",
+          ),
+      }),
+    },
+  );
 
   // ── Tool: upload_illustration ─────────────────────────────────────────────
 
-  const uploadIllustrationTool = tool({
-    name: "upload_illustration",
-    description:
-      "Compress and upload the final illustration to storage, then return a signed URL. Always call this as the last step.",
-    parameters: z.object({}),
-    async execute() {
+  const uploadIllustrationTool = tool(
+    async () => {
       if (!capturedImageBuffer) throw new Error("generate_illustration must be called first.");
 
       const fmt = genSettings?.outputFormat ?? "png";
@@ -505,22 +585,24 @@ export function createBrandIllustrationAgent(
 
       return JSON.stringify({ filename, signedUrl: signedData.signedUrl, storagePath });
     },
-  });
+    {
+      name: "upload_illustration",
+      description:
+        "Compress and upload the final illustration to storage, then return a signed URL. Always call this as the last step.",
+      schema: z.object({}),
+    },
+  );
 
-  // ── Build agent ───────────────────────────────────────────────────────────
+  // ── Build inner deep agent ────────────────────────────────────────────────
 
-  return new Agent({
-    name: "Brand Illustration Creator",
-    instructions: AGENT_INSTRUCTIONS,
-    model: MODEL,
+  return createDeepAgent({
+    model: new ChatOpenAI({ model: MODEL, temperature: 0 }),
     tools: [
       fetchBrandContextTool,
       fetchCharacterReferencesTool,
       generateIllustrationTool,
       uploadIllustrationTool,
     ],
-    modelSettings: {
-      reasoning: { effort: "none" },
-    },
+    systemPrompt: AGENT_INSTRUCTIONS,
   });
 }
