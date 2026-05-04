@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from "react";
 import {
   IllustrationSettings,
-  IllustrationColourPalette,
+  DefaultCharacterFacialColours,
   CharacterAgeGroup,
+  PaletteColor,
 } from "@/types/settings";
 import { saveIllustrationSettings, uploadIllustrationToTemp } from "../actions";
 import { Button } from "@/components/ui/button";
@@ -45,29 +46,26 @@ const MAX_PROPORTION_IMAGES = 5;
 const AGE_GROUPS: CharacterAgeGroup[] = ["Young", "Teenager", "Adult", "Senior"];
 
 const COLOUR_PALETTE_GROUPS: Array<{
-  key: keyof Omit<IllustrationColourPalette, "sample_images">;
+  key: keyof DefaultCharacterFacialColours;
   label: string;
 }> = [
   { key: "hair_colors", label: "Hair" },
-  { key: "skin_tone_colors", label: "Skin Tones" },
-  { key: "shadow_colors", label: "Shadow" },
-  { key: "facial_feature_colors", label: "Facial Features" },
+  { key: "skin_tones", label: "Skin Tones" },
+  { key: "shadow", label: "Shadow" },
+  { key: "facial_features", label: "Facial Features" },
 ];
 
 const DEFAULT_ILLU_SETTINGS: IllustrationSettings = {
-  style_description: "",
-  style_samples: [],
-  palette_description: "",
-  colour_proportion_description: "",
-  colour_proportion_samples: [],
-  colour_palette: {
+  general_brand_guideline: { description: "", sample_images: [] },
+  colour_palette: { description: "", sample_images: [] },
+  colour_proportion: { description: "", sample_images: [] },
+  default_character_facial_colours: {
     hair_colors: [],
-    skin_tone_colors: [],
-    shadow_colors: [],
-    facial_feature_colors: [],
-    sample_images: [],
+    skin_tones: [],
+    shadow: [],
+    facial_features: [],
   },
-  usages: [],
+  other_usecases: [],
   characters: [],
 };
 
@@ -184,21 +182,30 @@ export function IllustrationsTab({
   const initIllu: IllustrationSettings = {
     ...DEFAULT_ILLU_SETTINGS,
     ...src,
-    style_samples: src?.style_samples ?? [],
-    colour_proportion_samples: src?.colour_proportion_samples ?? [],
+    general_brand_guideline: {
+      description: src?.general_brand_guideline?.description ?? "",
+      sample_images: src?.general_brand_guideline?.sample_images ?? [],
+    },
     colour_palette: {
-      ...DEFAULT_ILLU_SETTINGS.colour_palette,
-      ...src?.colour_palette,
+      description: src?.colour_palette?.description ?? "",
       sample_images: src?.colour_palette?.sample_images ?? [],
     },
-    usages: src?.usages ?? [],
+    colour_proportion: {
+      description: src?.colour_proportion?.description ?? "",
+      sample_images: src?.colour_proportion?.sample_images ?? [],
+    },
+    default_character_facial_colours: {
+      ...DEFAULT_ILLU_SETTINGS.default_character_facial_colours,
+      ...src?.default_character_facial_colours,
+    },
+    other_usecases: src?.other_usecases ?? [],
     characters: src?.characters ?? [],
   };
 
   const [illuData, setIlluData] = useState<IllustrationSettings>(initIllu);
 
   const [styleSamples, setStyleSamples] = useState<IllustrationItem[]>(() =>
-    initIllu.style_samples.map((m) => makeItem(m, m.url)),
+    initIllu.general_brand_guideline.sample_images.map((m) => makeItem(m, m.url)),
   );
 
   const [paletteSamples, setPaletteSamples] = useState<IllustrationItem[]>(() =>
@@ -206,12 +213,12 @@ export function IllustrationsTab({
   );
 
   const [proportionSamples, setProportionSamples] = useState<IllustrationItem[]>(() =>
-    initIllu.colour_proportion_samples.map((m) => makeItem(m, m.url)),
+    initIllu.colour_proportion.sample_images.map((m) => makeItem(m, m.url)),
   );
 
   const [usageSamples, setUsageSamples] = useState<(IllustrationItem | null)[]>(
     () =>
-      initIllu.usages.map((u) =>
+      initIllu.other_usecases.map((u) =>
         u.sample ? makeItem(u.sample, u.sample.url) : null,
       ),
   );
@@ -265,10 +272,10 @@ export function IllustrationsTab({
     paletteSamples.some((i) => i.media.url.startsWith("temp/")) ||
     proportionSamples.some((i) => i.media.url.startsWith("temp/")) ||
     usageSamples.some((i) => i?.media.url.startsWith("temp/")) ||
-    styleSamples.length !== initIllu.style_samples.length ||
+    styleSamples.length !== initIllu.general_brand_guideline.sample_images.length ||
     paletteSamples.length !== initIllu.colour_palette.sample_images.length ||
-    proportionSamples.length !== initIllu.colour_proportion_samples.length ||
-    usageSamples.length !== initIllu.usages.length ||
+    proportionSamples.length !== initIllu.colour_proportion.sample_images.length ||
+    usageSamples.length !== initIllu.other_usecases.length ||
     characters.length !== initIllu.characters.length;
 
   // ── Style/palette upload helpers ────────────────────────────────────────────
@@ -348,8 +355,8 @@ export function IllustrationsTab({
   const addUsage = () => {
     setIlluData((prev) => ({
       ...prev,
-      usages: [
-        ...prev.usages,
+      other_usecases: [
+        ...prev.other_usecases,
         { clientId: crypto.randomUUID(), description: "", sample: null },
       ],
     }));
@@ -358,9 +365,9 @@ export function IllustrationsTab({
 
   const removeUsage = (index: number) => {
     setIlluData((prev) => {
-      const usages = [...prev.usages];
-      usages.splice(index, 1);
-      return { ...prev, usages };
+      const other_usecases = [...prev.other_usecases];
+      other_usecases.splice(index, 1);
+      return { ...prev, other_usecases };
     });
     setUsageSamples((prev) => {
       const next = [...prev];
@@ -371,9 +378,9 @@ export function IllustrationsTab({
 
   const updateUsageDescription = (index: number, value: string) => {
     setIlluData((prev) => {
-      const usages = [...prev.usages];
-      usages[index] = { ...usages[index], description: value };
-      return { ...prev, usages };
+      const other_usecases = [...prev.other_usecases];
+      other_usecases[index] = { ...other_usecases[index], description: value };
+      return { ...prev, other_usecases };
     });
   };
 
@@ -505,16 +512,35 @@ export function IllustrationsTab({
 
   const handleSave = async () => {
     setLoading(true);
+    // Strip any legacy numeric-index keys from PaletteColor objects (artefact of
+    // an old string-spread bug) so they are never persisted back to the DB.
+    const cleanColor = (c: PaletteColor): PaletteColor => ({
+      hex: c.hex,
+      ...(c.opacity !== undefined && { opacity: c.opacity }),
+      ...(c.description !== undefined && { description: c.description }),
+    });
     try {
       const settingsToSave: IllustrationSettings = {
         ...illuData,
-        style_samples: styleSamples.map((i) => i.media),
-        colour_proportion_samples: proportionSamples.map((i) => i.media),
+        general_brand_guideline: {
+          description: illuData.general_brand_guideline.description,
+          sample_images: styleSamples.map((i) => i.media),
+        },
         colour_palette: {
-          ...illuData.colour_palette,
+          description: illuData.colour_palette.description,
           sample_images: paletteSamples.map((i) => i.media),
         },
-        usages: illuData.usages.map((u, idx) => ({
+        colour_proportion: {
+          description: illuData.colour_proportion.description,
+          sample_images: proportionSamples.map((i) => i.media),
+        },
+        default_character_facial_colours: {
+          hair_colors: (illuData.default_character_facial_colours.hair_colors ?? []).map(cleanColor),
+          skin_tones: (illuData.default_character_facial_colours.skin_tones ?? []).map(cleanColor),
+          shadow: (illuData.default_character_facial_colours.shadow ?? []).map(cleanColor),
+          facial_features: (illuData.default_character_facial_colours.facial_features ?? []).map(cleanColor),
+        },
+        other_usecases: illuData.other_usecases.map((u, idx) => ({
           ...u,
           sample: usageSamples[idx]?.media ?? null,
         })),
@@ -646,11 +672,11 @@ export function IllustrationsTab({
                 <Textarea
                   id="style_description"
                   placeholder="Flat design with bold outlines, vibrant colours, minimal gradients..."
-                  value={illuData.style_description}
+                  value={illuData.general_brand_guideline.description}
                   onChange={(e) =>
                     setIlluData((prev) => ({
                       ...prev,
-                      style_description: e.target.value,
+                      general_brand_guideline: { ...prev.general_brand_guideline, description: e.target.value },
                     }))
                   }
                   className="min-h-[100px]"
@@ -704,11 +730,11 @@ export function IllustrationsTab({
                 <Textarea
                   id="palette_description"
                   placeholder="Optional context to AI..."
-                  value={illuData.palette_description ?? ""}
+                  value={illuData.colour_palette.description ?? ""}
                   onChange={(e) =>
                     setIlluData((prev) => ({
                       ...prev,
-                      palette_description: e.target.value,
+                      colour_palette: { ...prev.colour_palette, description: e.target.value },
                     }))
                   }
                   className="min-h-[80px]"
@@ -753,11 +779,11 @@ export function IllustrationsTab({
                 <Textarea
                   id="colour_proportion_description"
                   placeholder="e.g. Red is dominant at 60%, white at 30%, dark accents at 10%..."
-                  value={illuData.colour_proportion_description ?? ""}
+                  value={illuData.colour_proportion.description ?? ""}
                   onChange={(e) =>
                     setIlluData((prev) => ({
                       ...prev,
-                      colour_proportion_description: e.target.value,
+                      colour_proportion: { ...prev.colour_proportion, description: e.target.value },
                     }))
                   }
                   className="min-h-[80px]"
@@ -1025,11 +1051,11 @@ export function IllustrationsTab({
                 <ColorPaletteGroup
                   key={key}
                   label={label}
-                  colors={illuData.colour_palette[key] ?? []}
+                  colors={illuData.default_character_facial_colours[key] ?? []}
                   onChange={(colors) =>
                     setIlluData((prev) => ({
                       ...prev,
-                      colour_palette: { ...prev.colour_palette, [key]: colors },
+                      default_character_facial_colours: { ...prev.default_character_facial_colours, [key]: colors },
                     }))
                   }
                 />
@@ -1058,13 +1084,13 @@ export function IllustrationsTab({
           </AccordionPrimitive.Header>
           <AccordionContent className="px-4 pb-4">
             <div className="space-y-4 pt-2">
-              {illuData.usages.length === 0 && (
+              {illuData.other_usecases.length === 0 && (
                 <p className="text-sm text-muted-foreground italic">
                   No usages defined yet. Click &ldquo;Add Usage&rdquo; to get started.
                 </p>
               )}
 
-              {illuData.usages.map((usage, idx) => {
+              {illuData.other_usecases.map((usage, idx) => {
                 const sampleItem = usageSamples[idx] ?? null;
                 return (
                   <div

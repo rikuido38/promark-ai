@@ -111,9 +111,9 @@ export async function POST() {
 function collectImagePaths(illustration: IllustrationSettings | null): string[] {
   if (!illustration) return [];
   return [
-    ...(illustration.style_samples ?? []).map((m) => m.url),
+    ...(illustration.general_brand_guideline?.sample_images ?? []).map((m) => m.url),
     ...(illustration.colour_palette?.sample_images ?? []).map((m) => m.url),
-    ...(illustration.usages ?? [])
+    ...(illustration.other_usecases ?? [])
       .map((u) => u.sample?.url)
       .filter((p): p is string => !!p),
     ...(illustration.characters ?? [])

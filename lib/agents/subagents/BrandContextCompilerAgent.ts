@@ -234,11 +234,11 @@ export async function runBrandContextCompiler(
     .map((m) => resolve(m.url))
     .filter(Boolean);
 
-  const proportionSampleUrls = (illustration?.colour_proportion_samples ?? [])
+  const proportionSampleUrls = (illustration?.colour_proportion?.sample_images ?? [])
     .map((m) => resolve(m.url))
     .filter(Boolean);
 
-  const usages = (illustration?.usages ?? []).map((u, i) => ({
+  const usages = (illustration?.other_usecases ?? []).map((u, i) => ({
     index: i,
     description: u.description,
     image_url: u.sample ? resolve(u.sample.url) || null : null,
@@ -261,20 +261,20 @@ export async function runBrandContextCompiler(
       brand,
       illustration: illustration
         ? {
-            style_description: illustration.style_description,
+            style_description: illustration.general_brand_guideline?.description ?? "",
             brand_colour_palette: {
-              palette_user_description: illustration.palette_description ?? "",
+              palette_user_description: illustration.colour_palette?.description ?? "",
               sample_image_urls: paletteSampleUrls,
             },
             brand_colour_proportion: {
-              proportion_user_description: illustration.colour_proportion_description ?? "",
+              proportion_user_description: illustration.colour_proportion?.description ?? "",
               sample_image_urls: proportionSampleUrls,
             },
             facial_colour_palette: {
-              hair_colors: illustration.colour_palette?.hair_colors ?? [],
-              skin_tone_colors: illustration.colour_palette?.skin_tone_colors ?? [],
-              shadow_colors: illustration.colour_palette?.shadow_colors ?? [],
-              facial_feature_colors: illustration.colour_palette?.facial_feature_colors ?? [],
+              hair_colors: illustration.default_character_facial_colours?.hair_colors ?? [],
+              skin_tone_colors: illustration.default_character_facial_colours?.skin_tones ?? [],
+              shadow_colors: illustration.default_character_facial_colours?.shadow ?? [],
+              facial_feature_colors: illustration.default_character_facial_colours?.facial_features ?? [],
             },
             usages,
             characters,

@@ -13,4 +13,6 @@ export const TABLES = {
   USER_INTEGRATIONS: "user_integrations",
   USER_DRAFTS: "user_drafts",
   TEMPLATES: "templates",
+  STUDIO_THREADS: "studio_threads",
+  STUDIO_THREAD_CHATS: "studio_thread_chats",
 } as const;

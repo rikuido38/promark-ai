@@ -19,12 +19,31 @@ export interface PaletteColor {
   opacity?: number;
 }
 
+export interface GeneralBrandGuideline {
+  /** Free-text style concept and identity description */
+  description: string;
+  /** Sample images illustrating the style */
+  sample_images: import("@/types/models").Media[];
+}
+
 export interface IllustrationColourPalette {
+  /** Optional context about the colour palette for AI */
+  description?: string;
+  /** Sample images showing colour usage in context */
+  sample_images: import("@/types/models").Media[];
+}
+
+export interface DefaultCharacterFacialColours {
   hair_colors: PaletteColor[];
-  skin_tone_colors: PaletteColor[];
-  shadow_colors: PaletteColor[];
-  facial_feature_colors: PaletteColor[];
-  /** sample images showing colour usage in context */
+  skin_tones: PaletteColor[];
+  shadow: PaletteColor[];
+  facial_features: PaletteColor[];
+}
+
+export interface ColourProportion {
+  /** Optional context about colour proportions for AI */
+  description?: string;
+  /** Sample images illustrating colour proportions */
   sample_images: import("@/types/models").Media[];
 }
 
@@ -56,18 +75,11 @@ export interface IllustrationCharacter {
 }
 
 export interface IllustrationSettings {
-  /** Free-text style concept, identity and colour description */
-  style_description: string;
-  /** Sample images illustrating the style */
-  style_samples: import("@/types/models").Media[];
+  general_brand_guideline: GeneralBrandGuideline;
   colour_palette: IllustrationColourPalette;
-  /** Optional context about the colour palette for AI */
-  palette_description?: string;
-  /** Optional context about colour proportions for AI */
-  colour_proportion_description?: string;
-  /** Sample images illustrating colour proportions */
-  colour_proportion_samples: import("@/types/models").Media[];
-  usages: IllustrationUsage[];
+  default_character_facial_colours: DefaultCharacterFacialColours;
+  colour_proportion: ColourProportion;
+  other_usecases: IllustrationUsage[];
   characters: IllustrationCharacter[];
 }
 

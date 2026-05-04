@@ -180,10 +180,10 @@ export async function getBrandContext(
               }
             : undefined,
           facial_colour_palette: {
-            hair_colors: (raw.illustration.facial_colour_palette?.hair_colors ?? (raw.illustration as any).colour_palette?.hair_colors ?? []).map(sanitizeColor),
-            skin_tone_colors: (raw.illustration.facial_colour_palette?.skin_tone_colors ?? (raw.illustration as any).colour_palette?.skin_tone_colors ?? []).map(sanitizeColor),
-            shadow_colors: (raw.illustration.facial_colour_palette?.shadow_colors ?? (raw.illustration as any).colour_palette?.shadow_colors ?? []).map(sanitizeColor),
-            facial_feature_colors: (raw.illustration.facial_colour_palette?.facial_feature_colors ?? (raw.illustration as any).colour_palette?.facial_feature_colors ?? []).map(sanitizeColor),
+            hair_colors: (raw.illustration.facial_colour_palette?.hair_colors ?? []).map(sanitizeColor),
+            skin_tone_colors: (raw.illustration.facial_colour_palette?.skin_tone_colors ?? []).map(sanitizeColor),
+            shadow_colors: (raw.illustration.facial_colour_palette?.shadow_colors ?? []).map(sanitizeColor),
+            facial_feature_colors: (raw.illustration.facial_colour_palette?.facial_feature_colors ?? []).map(sanitizeColor),
           },
           usages: raw.illustration.usages.map((u, i) => ({
             description: u.description,
@@ -242,28 +242,28 @@ export function buildContextDocument(
       : { primary_colors: [], composition_rules: "" },
     illustration: illustration
       ? {
-          style_description: illustration.style_description,
-          style_image_paths: (illustration.style_samples ?? []).map((m) => m.url),
+          style_description: illustration.general_brand_guideline?.description ?? "",
+          style_image_paths: (illustration.general_brand_guideline?.sample_images ?? []).map((m) => m.url),
           style_analysis: "",
           brand_colour_palette: {
-            palette_user_description: illustration.palette_description,
+            palette_user_description: illustration.colour_palette?.description,
             sample_image_paths: (illustration.colour_palette?.sample_images ?? []).map(
               (m) => m.url,
             ),
             palette_style_prompt: analyses?.paletteAnalysis ?? "",
           },
           brand_colour_proportion: {
-            proportion_user_description: illustration.colour_proportion_description,
-            sample_image_paths: (illustration.colour_proportion_samples ?? []).map((m) => m.url),
+            proportion_user_description: illustration.colour_proportion?.description,
+            sample_image_paths: (illustration.colour_proportion?.sample_images ?? []).map((m) => m.url),
             proportion_style_prompt: analyses?.proportionAnalysis ?? "",
           },
           facial_colour_palette: {
-            hair_colors: (illustration.colour_palette?.hair_colors ?? []).map(sanitizeColor),
-            skin_tone_colors: (illustration.colour_palette?.skin_tone_colors ?? []).map(sanitizeColor),
-            shadow_colors: (illustration.colour_palette?.shadow_colors ?? []).map(sanitizeColor),
-            facial_feature_colors: (illustration.colour_palette?.facial_feature_colors ?? []).map(sanitizeColor),
+            hair_colors: (illustration.default_character_facial_colours?.hair_colors ?? []).map(sanitizeColor),
+            skin_tone_colors: (illustration.default_character_facial_colours?.skin_tones ?? []).map(sanitizeColor),
+            shadow_colors: (illustration.default_character_facial_colours?.shadow ?? []).map(sanitizeColor),
+            facial_feature_colors: (illustration.default_character_facial_colours?.facial_features ?? []).map(sanitizeColor),
           },
-          usages: (illustration.usages ?? []).map((u, i) => ({
+          usages: (illustration.other_usecases ?? []).map((u, i) => ({
             description: u.description,
             sample_image_path: u.sample?.url ?? null,
             usage_analysis: analyses?.usageAnalyses[i] ?? null,

@@ -23,7 +23,7 @@ import { GenerationSettingsButton } from "@/components/generation-settings-dialo
 import type { GenerationSettings, GenerationTabKey } from "@/types/generation-settings";
 import { DEFAULT_GENERATION_SETTINGS, tabKeyFromPageKey } from "@/types/generation-settings";
 
-type Message = {
+export type Message = {
   role: "assistant" | "user";
   content: string;
   medias?: MediaItem[];
@@ -51,6 +51,8 @@ export function AssistantChatbot({
   pageKey,
   defaultSettings,
   autoSendMessage,
+  initialModel,
+  initialMessages,
 }: {
   title?: string;
   systemMessage?: string;
@@ -66,11 +68,17 @@ export function AssistantChatbot({
   /** If provided, automatically sends this message once on initial mount. */
   autoSendMessage?: string;
   /** If provided, uses this as the initial selected model (overrides availableModels[0]). */
-  // eslint-disable-next-line react/no-unused-prop-types
   initialModel?: string;
+  /** Pre-populate the chat with restored history messages (e.g. from DB). */
+  initialMessages?: Message[];
 }) {
   const figmaTool = connectedTools.find((t) => t.slug === "figma");
   const buildInitialMessages = (): Message[] => {
+    // Restored history takes priority — skip the welcome message entirely.
+    if (initialMessages && initialMessages.length > 0) return initialMessages;
+    // When autoSendMessage is provided the chatbot starts working immediately —
+    // skip the welcome message so it doesn't appear before the first response.
+    if (autoSendMessage) return [];
     const msgs: Message[] = [
       { id: "init", role: "assistant", content: systemMessage },
     ];
@@ -104,11 +112,19 @@ export function AssistantChatbot({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const autoSentRef = useRef(false);
 
-  // Auto-send on first mount if a message was provided (e.g. from studio prompt input)
+  // Auto-send on first mount if a message was provided (e.g. from studio prompt input).
+  // NOTE: autoSentRef.current is set INSIDE the timeout callback (not before) so that
+  // React strict-mode's double-invoke (mount → cleanup → remount) doesn't permanently
+  // block the send: the cleanup clears the first timeout, the remount reschedules it,
+  // and only the callback that actually fires marks the ref as done.
   useEffect(() => {
     if (autoSendMessage && !autoSentRef.current) {
-      autoSentRef.current = true;
-      const t = setTimeout(() => handleSendMessage(autoSendMessage), 100);
+      const t = setTimeout(() => {
+        if (!autoSentRef.current) {
+          autoSentRef.current = true;
+          void handleSendMessage(autoSendMessage);
+        }
+      }, 100);
       return () => clearTimeout(t);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

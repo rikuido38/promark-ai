@@ -29,6 +29,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-dropzone": "^15.0.0",
+    "react-image-crop": "^11.0.10",
     "react-resizable-panels": "^4.7.2",
     "recharts": "^2.15.4",
     "shadcn": "^4.0.2",

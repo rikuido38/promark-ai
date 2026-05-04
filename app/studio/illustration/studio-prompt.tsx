@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   Sparkles, ArrowUp, ImageIcon,
   Plus, X, Loader2,
@@ -30,6 +31,7 @@ import {
   type GenerationSettings,
 } from "@/types/generation-settings";
 import { uploadChatAttachmentClient, type UploadAttachmentResult } from "@/app/actions/upload-attachment-client";
+import { upsertStudioThread } from "@/app/studio/illustration/[id]/actions";
 import { toast } from "sonner";
 
 const ILLUSTRATION_MODELS = ["gpt-image-2", "gpt-image-1.5"];
@@ -37,11 +39,13 @@ const ILLUSTRATION_MODELS = ["gpt-image-2", "gpt-image-1.5"];
 const PAGE_KEY = "studio-illustration";
 
 export function StudioPrompt() {
-  const { openWithMessage, availableModels } = useAIAssistant();
+  const { availableModels } = useAIAssistant();
+  const router = useRouter();
   const models = availableModels.length > 0 ? availableModels : ILLUSTRATION_MODELS;
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<UploadAttachmentResult[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>(models[0]);
   const [generationSettings, setGenerationSettings] = useState<GenerationSettings>(
     () => DEFAULT_GENERATION_SETTINGS.illustration,
@@ -78,26 +82,34 @@ export function StudioPrompt() {
     setAttachments((prev) => prev.filter((x) => x.storagePath !== storagePath));
   }
 
-  function submit(msg: string) {
+  async function submit(msg: string) {
     const trimmed = msg.trim();
     if (!trimmed && attachments.length === 0) return;
     const messageWithAttachments =
       attachments.length > 0
         ? `${trimmed}\n\nAttached images:\n${attachments.map((a) => a.signedUrl).join("\n")}`
         : trimmed;
-    openWithMessage(messageWithAttachments, selectedModel || undefined, generationSettings);
+    const threadId = crypto.randomUUID();
+    setSubmitting(true);
     setValue("");
     setAttachments([]);
+    try {
+      await upsertStudioThread(threadId, "illustration", messageWithAttachments, selectedModel || undefined);
+      router.push(`/studio/illustration/${threadId}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create thread.");
+      setSubmitting(false);
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit(value);
+      void submit(value);
     }
   }
 
-  const canSubmit = value.trim().length > 0 || attachments.length > 0;
+  const canSubmit = !submitting && (value.trim().length > 0 || attachments.length > 0);
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-4">
@@ -218,7 +230,7 @@ export function StudioPrompt() {
           </div>
 
           <button
-            onClick={() => submit(value)}
+            onClick={() => void submit(value)}
             disabled={!canSubmit}
             className={cn(
               "h-8 w-8 flex items-center justify-center rounded-full transition-colors",
@@ -228,7 +240,7 @@ export function StudioPrompt() {
             )}
             aria-label="Generate illustration"
           >
-            <ArrowUp className="h-4 w-4" />
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
           </button>
         </div>
       </div>

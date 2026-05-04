@@ -225,9 +225,12 @@ export async function getIllustrationSettings(): Promise<IllustrationSettings | 
     return { ...m, url: sd?.signedUrl ?? m.url };
   };
 
-  settings.style_samples = await Promise.all(
-    (settings.style_samples ?? []).map(resolveMedia),
-  );
+  settings.general_brand_guideline = {
+    description: settings.general_brand_guideline?.description ?? "",
+    sample_images: await Promise.all(
+      (settings.general_brand_guideline?.sample_images ?? []).map(resolveMedia),
+    ),
+  };
 
   settings.colour_palette = {
     ...settings.colour_palette,
@@ -236,8 +239,15 @@ export async function getIllustrationSettings(): Promise<IllustrationSettings | 
     ),
   };
 
-  settings.usages = await Promise.all(
-    (settings.usages ?? []).map(async (u) => ({
+  settings.colour_proportion = {
+    ...settings.colour_proportion,
+    sample_images: await Promise.all(
+      (settings.colour_proportion?.sample_images ?? []).map(resolveMedia),
+    ),
+  };
+
+  settings.other_usecases = await Promise.all(
+    (settings.other_usecases ?? []).map(async (u) => ({
       ...u,
       sample: u.sample ? await resolveMedia(u.sample) : null,
     })),
