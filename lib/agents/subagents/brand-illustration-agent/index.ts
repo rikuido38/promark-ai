@@ -214,11 +214,20 @@ export function createBrandIllustrationTool(
 
   return tool(
     async ({ user_request }: { user_request: string }) => {
+      console.log("[BrandIllustrationTool] invoked | user_request =", user_request);
+      console.log("[BrandIllustrationTool] options =", JSON.stringify({
+        imageModel: options?.imageModel,
+        sampleImageUrls: options?.sampleImageUrls,
+        generationSettings: options?.generationSettings,
+      }));
+
       // Build a fresh inner agent with per-invocation closure state
       const innerAgent = buildIllustrationAgent(supabase, options);
+      console.log("[BrandIllustrationTool] inner agent created, invoking pipeline...");
       const result = await innerAgent.invoke({
         messages: [new HumanMessage(user_request)],
       });
+      console.log("[BrandIllustrationTool] inner agent finished | message count =", result.messages?.length ?? 0);
 
       // Find the upload_illustration tool result which contains the signedUrl JSON.
       // The outer main agent needs this JSON to populate medias[].
@@ -236,12 +245,14 @@ export function createBrandIllustrationTool(
         // Re-serialize to ensure the outer agent receives clean JSON with type hint
         try {
           const parsed = JSON.parse(content);
+          console.log("[BrandIllustrationTool] upload result found | filename =", parsed.filename, "| storagePath =", parsed.storagePath);
           return JSON.stringify({ ...parsed, type: "image" });
         } catch {
           return content;
         }
       }
       // Fallback: return the last AI message if no upload result found
+      console.warn("[BrandIllustrationTool] no upload result found in messages — returning last AI message");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lastAiMsg = [...messages].reverse().find((m: any) => {
         return typeof m._getType === "function" && m._getType() === "ai";
@@ -484,7 +495,11 @@ function buildIllustrationAgent(
           type: "image_generation",
           model: imageModel,
           quality: genSettings?.quality ?? "high",
-          ...(genSettings?.background && genSettings.background !== "auto" ? { background: genSettings.background } : {}),
+          // Only pass background to models that support transparent backgrounds.
+          // gpt-image-2 does not; omit the param entirely for unsupported models.
+          ...(genSettings?.background && genSettings.background !== "auto" &&
+            !(genSettings.background === "transparent" && imageModel === "gpt-image-2")
+            ? { background: genSettings.background } : {}),
           ...(genSettings?.size && genSettings.size !== "auto" ? { size: genSettings.size } : {}),
         }],
       };
@@ -550,11 +565,7 @@ function buildIllustrationAgent(
       let compressed: Buffer;
       let contentType: string;
       let ext: string;
-      if (fmt === "jpeg") {
-        compressed = await sharp(capturedImageBuffer).jpeg({ quality: compression }).toBuffer();
-        contentType = "image/jpeg";
-        ext = "jpg";
-      } else if (fmt === "webp") {
+      if (fmt === "webp") {
         compressed = await sharp(capturedImageBuffer).webp({ quality: compression }).toBuffer();
         contentType = "image/webp";
         ext = "webp";

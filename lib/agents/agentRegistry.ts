@@ -36,6 +36,12 @@ export interface AgentRegistryEntry {
   toolDescription: string;
   /** Factory — receives per-request dependencies, returns a bound StructuredTool. */
   createTool: (supabase: SupabaseClient, options?: AgentFactoryOptions) => StructuredTool;
+  /**
+   * Builds the tool's input object from the raw user message.
+   * Used in "direct" mode to invoke the tool without an LLM round-trip.
+   * Defaults to `{ user_request: userMessage }` if omitted.
+   */
+  buildDirectInput?: (userMessage: string) => Record<string, unknown>;
 }
 
 /** Options passed through from the API call into every subagent factory. */
@@ -59,6 +65,7 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
       "Generate an on-brand illustration or image from a user prompt. " +
       "Use this whenever the user asks to create, generate, or draw an illustration, image, or visual.",
     createTool: (supabase, options) => createBrandIllustrationTool(supabase, options),
+    buildDirectInput: (userMessage) => ({ user_request: userMessage }),
   },
   // ── Add new agents/pipelines here ───────────────────────────────────────
   // compile_brand_context: {

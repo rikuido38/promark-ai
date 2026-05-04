@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { memorySaver, getOrCreateSession } from "./sessionStore";
 import { classifyIntent } from "./intentRouter";
-import { resolveAgentTool, resolveAllAgentTools } from "./agentRegistry";
+import { resolveAgentTool, resolveAllAgentTools, AGENT_REGISTRY } from "./agentRegistry";
 import type { AgentFactoryOptions } from "./agentRegistry";
 import type { RouteMode } from "./intentRouter";
 import type { AssistantOutput } from "@/types/agent";
@@ -194,31 +194,34 @@ export async function runMainAgent(
   });
 
   // ── Intent routing ────────────────────────────────────────────────────────
-  // If the call site supplies both intent + target, skip the classifier.
-  // Otherwise fall back to rule-based classification.
   const route =
     explicitIntent && explicitTarget
       ? { mode: explicitIntent, target: explicitTarget }
       : classifyIntent(userMessage);
 
+  console.log("[MainAgent] route =", JSON.stringify(route));
+
+  // ── Direct mode: invoke the registered tool straight, no LLM round-trip ──
+  if (route.mode === "direct" && route.target) {
+    const directResult = await runDirectTool(route.target, userMessage, supabase, agentOptions);
+    if (directResult) {
+      return { output: directResult, sessionId };
+    }
+  }
+
+  // ── Agentic / pipeline: delegate to the orchestrator LLM ─────────────────
   let tools;
   if (route.mode === "agentic") {
-    // Open-ended: give the agent access to every registered subagent as a tool.
     tools = resolveAllAgentTools(supabase, agentOptions);
   } else {
-    // Pipeline / direct: restrict the agent to the one relevant subagent tool
-    // so it cannot stray. Falls back to no tools if target isn't registered.
     const singleTool = route.target
       ? resolveAgentTool(route.target, supabase, agentOptions)
       : null;
     tools = singleTool ? [singleTool] : [];
   }
 
-  // ── Build agent (per-request to allow dynamic instructions + tools) ───────
-  // responseFormat is intentionally omitted — deepagents' SupportedResponseFormat
-  // type does not accept Zod schemas from an incompatible langchain version.
-  // The system prompt instructs the model to return JSON; parseLastAiMessage()
-  // extracts and parses it from the final AI message.
+  console.log("[MainAgent] agent mode =", route.mode, "| tools =", tools.map((t) => t.name));
+
   const agent = createDeepAgent({
     model: new ChatOpenAI({ model: MODEL, temperature: 0 }),
     systemPrompt: buildInstructions(assistantName, currentDate),
@@ -231,14 +234,19 @@ export async function runMainAgent(
     { configurable: { thread_id: sessionId } },
   );
 
-  // Extract structured output — deepagents surfaces it under `structuredResponse`
-  // when responseFormat is a Zod schema, falling back to parsing the last AI message.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw = (result as any).structuredResponse ?? parseLastAiMessage(result.messages);
 
+  const toolMedias = extractMediasFromToolMessages(result.messages);
+  const existingUrls = new Set((raw?.medias ?? []).map((m: { signedUrl: string }) => m.signedUrl));
+  const mergedMedias = [
+    ...(raw?.medias ?? []),
+    ...toolMedias.filter((m) => !existingUrls.has(m.signedUrl)),
+  ];
+
   const output: AssistantOutput = {
     text: raw?.text ?? "",
-    medias: raw?.medias ?? [],
+    medias: mergedMedias,
     confidenceScore: raw?.confidenceScore ?? 0,
     metadata: {},
   };
@@ -249,6 +257,49 @@ export async function runMainAgent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Direct-mode execution: call a registered tool without an LLM round-trip.
+ * Returns a complete AssistantOutput, or null if the target isn't registered.
+ */
+async function runDirectTool(
+  target: string,
+  userMessage: string,
+  supabase: SupabaseClient,
+  agentOptions: AgentFactoryOptions,
+): Promise<AssistantOutput | null> {
+  const entry = AGENT_REGISTRY[target];
+  if (!entry) return null;
+
+  const directTool = entry.createTool(supabase, agentOptions);
+  const toolInput = entry.buildDirectInput?.(userMessage) ?? { user_request: userMessage };
+
+  console.log("[MainAgent] direct: invoking tool =", target, "| input =", JSON.stringify(toolInput));
+  const toolResult: string = await directTool.invoke(toolInput);
+  console.log("[MainAgent] direct: raw tool result =", toolResult.slice(0, 500));
+
+  const medias: AssistantOutput["medias"] = [];
+  try {
+    const parsed = JSON.parse(toolResult);
+    if (typeof parsed?.signedUrl === "string" && typeof parsed?.filename === "string") {
+      medias.push({
+        filename: parsed.filename,
+        signedUrl: parsed.signedUrl,
+        type: parsed.type ?? "image",
+        ...(parsed.storagePath ? { storagePath: parsed.storagePath } : {}),
+      });
+    }
+  } catch { /* not JSON */ }
+
+  console.log("[MainAgent] direct: medias =", JSON.stringify(medias));
+
+  return {
+    text: medias.length > 0 ? "Your illustration is ready." : toolResult,
+    medias,
+    confidenceScore: 1,
+    metadata: {},
+  };
+}
 
 /**
  * Fallback: extract and JSON-parse the last AI message from the graph output
@@ -268,4 +319,37 @@ function parseLastAiMessage(messages: unknown[]): Partial<AssistantOutput> {
   } catch {
     return { text: content };
   }
+}
+
+/**
+ * Scan all tool messages in the result for JSON payloads that contain a
+ * `signedUrl` field. These come from subagent tools (e.g. upload_illustration)
+ * and must be surfaced in `medias[]` regardless of whether the LLM included
+ * them in its final JSON reply.
+ */
+function extractMediasFromToolMessages(
+  messages: unknown[],
+): Array<{ filename: string; signedUrl: string; type: "image" | "video" | "link"; storagePath?: string }> {
+  if (!Array.isArray(messages)) return [];
+  const medias: Array<{ filename: string; signedUrl: string; type: "image" | "video" | "link"; storagePath?: string }> = [];
+  for (const m of messages) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const msg = m as any;
+    if (typeof msg?._getType !== "function" || msg._getType() !== "tool") continue;
+    const raw = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "");
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.signedUrl === "string" && typeof parsed?.filename === "string") {
+        medias.push({
+          filename: parsed.filename,
+          signedUrl: parsed.signedUrl,
+          type: parsed.type ?? "image",
+          ...(parsed.storagePath ? { storagePath: parsed.storagePath } : {}),
+        });
+      }
+    } catch {
+      // not JSON — skip
+    }
+  }
+  return medias;
 }

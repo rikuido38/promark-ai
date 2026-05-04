@@ -38,8 +38,8 @@ const SIZE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const QUALITY_LABELS: Record<string, string> = { low: "Low", medium: "Medium", high: "High" };
-const BACKGROUND_LABELS: Record<string, string> = { opaque: "Opaque", auto: "Automatic" };
-const FORMAT_LABELS: Record<string, string> = { png: "PNG", jpeg: "JPEG", webp: "WebP" };
+const BACKGROUND_LABELS: Record<string, string> = { transparent: "Transparent", opaque: "Opaque", auto: "Automatic" };
+const FORMAT_LABELS: Record<string, string> = { png: "PNG", webp: "WebP" };
 
 interface Props {
   tabKey: GenerationTabKey;
@@ -170,6 +170,7 @@ export function GenerationSettingsButton({
                 <SelectValue>{BACKGROUND_LABELS[draft.background] ?? draft.background}</SelectValue>
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="transparent">Transparent</SelectItem>
                 <SelectItem value="opaque">Opaque</SelectItem>
                 <SelectItem value="auto">Automatic</SelectItem>
               </SelectContent>
@@ -204,7 +205,6 @@ export function GenerationSettingsButton({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="png">PNG</SelectItem>
-                <SelectItem value="jpeg">JPEG</SelectItem>
                 <SelectItem value="webp">WebP</SelectItem>
               </SelectContent>
             </Select>

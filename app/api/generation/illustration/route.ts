@@ -6,7 +6,6 @@ import { createClient } from "@/utils/supabase/server";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
 import { TABLES } from "@/utils/supabase/constant";
 import { runMainAgent } from "@/lib/agents/MainAgent";
-import { setDefaultOpenAIKey, MaxTurnsExceededError } from "@openai/agents";
 import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS } from "@/types/agent";
 import type { AssistantOutput } from "@/types/agent";
 import type { GenerationSettings } from "@/types/generation-settings";
@@ -58,8 +57,6 @@ export async function POST(req: NextRequest) {
       body.settings && typeof body.settings === "object" ? (body.settings as GenerationSettings) : undefined;
 
     // ── 2. Delegate to main agent ────────────────────────────────────────────────────
-    setDefaultOpenAIKey(process.env.OPENAI_API_KEY ?? "");
-
     const { data: org } = await supabase
       .from(TABLES.ORGANIZATIONS)
       .select("assistant_name")
@@ -79,14 +76,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ output, sessionId });
   } catch (error) {
-    if (error instanceof MaxTurnsExceededError) {
-      console.warn("[POST /api/generation/illustration] MaxTurnsExceeded — returning partial output");
-      // The error may carry the last agent output; surface it as a partial success.
-      const partial = (error as MaxTurnsExceededError & { output?: AssistantOutput }).output;
-      if (partial) {
-        return NextResponse.json({ output: partial, sessionId: null, partial: true });
-      }
-    }
     console.error("[POST /api/generation/illustration]", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Internal Server Error" },

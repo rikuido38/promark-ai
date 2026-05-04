@@ -1,5 +1,5 @@
 export type GenerationQuality = "low" | "medium" | "high";
-export type GenerationBackground = "opaque" | "auto";
+export type GenerationBackground = "transparent" | "opaque" | "auto";
 export type GenerationSize =
   | "auto"
   | "1024x1024"
@@ -9,7 +9,7 @@ export type GenerationSize =
   | "2048x1152"
   | "3840x2160"
   | "2160x3840";
-export type OutputFormat = "png" | "jpeg" | "webp";
+export type OutputFormat = "png" | "webp";
 export type GenerationTabKey = "image" | "illustration" | "video";
 
 export interface GenerationSettings {
@@ -33,7 +33,7 @@ export const DEFAULT_GENERATION_SETTINGS: Record<GenerationTabKey, GenerationSet
   illustration: {
     model: "gpt-image-2",
     quality: "medium",
-    background: "opaque",
+    background: "transparent",
     size: "auto",
     outputFormat: "png",
     compression: 85,
