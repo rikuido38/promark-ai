@@ -15,7 +15,7 @@ export function MainAssistantWrapper({
   children: React.ReactNode;
   className?: string;
 }) {
-  const { isOpen, setIsOpen, chatKey, assistantName, avatarUrl, connectedTools, messageHandler, availableModels, assistantIdentifier } =
+  const { isOpen, setIsOpen, chatKey, assistantName, avatarUrl, connectedTools, messageHandler, availableModels, assistantIdentifier, pendingAutoMessage, pendingAutoModel, pendingAutoSettings } =
     useAIAssistant();
 
   // If chat is entirely disabled for this path, we could conditionally
@@ -45,6 +45,9 @@ export function MainAssistantWrapper({
                   onSendMessage={messageHandler}
                   availableModels={availableModels}
                   pageKey={assistantIdentifier}
+                  autoSendMessage={pendingAutoMessage}
+                  initialModel={pendingAutoModel}
+                  defaultSettings={pendingAutoSettings}
                 />
               </div>
             </div>

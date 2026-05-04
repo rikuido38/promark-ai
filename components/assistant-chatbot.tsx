@@ -18,7 +18,7 @@ import type { ConnectedTool } from "@/types/models";
 import type { AssistantOutput, MediaItem } from "@/types/agent";
 import { saveDraft } from "@/app/draft/actions";
 import type { DraftMediaType } from "@/app/draft/actions";
-import { uploadChatAttachment, type UploadAttachmentResult } from "@/app/actions/upload-attachment";
+import { uploadChatAttachmentClient, type UploadAttachmentResult } from "@/app/actions/upload-attachment-client";
 import { GenerationSettingsButton } from "@/components/generation-settings-dialog";
 import type { GenerationSettings, GenerationTabKey } from "@/types/generation-settings";
 import { DEFAULT_GENERATION_SETTINGS, tabKeyFromPageKey } from "@/types/generation-settings";
@@ -35,6 +35,11 @@ type Message = {
 export type MessageHandlerResult = AssistantOutput;
 export type MessageHandler = (message: string, model?: string, settings?: GenerationSettings) => Promise<AssistantOutput>;
 
+const SCRIPT_TAG_RE = /<script\b[^>]*>[\s\S]*?<\/script>/gi;
+function stripScripts(html: string): string {
+  return html.replaceAll(SCRIPT_TAG_RE, "");
+}
+
 export function AssistantChatbot({
   title = "AI Assistant",
   systemMessage = "How can I help you?",
@@ -45,6 +50,7 @@ export function AssistantChatbot({
   availableModels,
   pageKey,
   defaultSettings,
+  autoSendMessage,
 }: {
   title?: string;
   systemMessage?: string;
@@ -57,6 +63,11 @@ export function AssistantChatbot({
   pageKey?: string;
   /** Initial generation settings overrides. */
   defaultSettings?: Partial<GenerationSettings>;
+  /** If provided, automatically sends this message once on initial mount. */
+  autoSendMessage?: string;
+  /** If provided, uses this as the initial selected model (overrides availableModels[0]). */
+  // eslint-disable-next-line react/no-unused-prop-types
+  initialModel?: string;
 }) {
   const figmaTool = connectedTools.find((t) => t.slug === "figma");
   const buildInitialMessages = (): Message[] => {
@@ -82,7 +93,7 @@ export function AssistantChatbot({
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   // filename → "saving" | "saved" | "error"
   const [draftState, setDraftState] = useState<Record<string, "saving" | "saved" | "error">>({});
-  const [selectedModel, setSelectedModel] = useState<string>(availableModels?.[0] ?? "");
+  const [selectedModel, setSelectedModel] = useState<string>(initialModel ?? availableModels?.[0] ?? "");
   const [attachments, setAttachments] = useState<UploadAttachmentResult[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [generationSettings, setGenerationSettings] = useState<GenerationSettings>(() => {
@@ -91,6 +102,16 @@ export function AssistantChatbot({
     return { ...base, ...defaultSettings };
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoSentRef = useRef(false);
+
+  // Auto-send on first mount if a message was provided (e.g. from studio prompt input)
+  useEffect(() => {
+    if (autoSendMessage && !autoSentRef.current) {
+      autoSentRef.current = true;
+      const t = setTimeout(() => handleSendMessage(autoSendMessage), 100);
+      return () => clearTimeout(t);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -99,9 +120,7 @@ export function AssistantChatbot({
     e.target.value = "";
     setUploadingAttachment(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const result = await uploadChatAttachment(formData);
+      const result = await uploadChatAttachmentClient(file);
       setAttachments((prev) => [...prev, result]);
     } catch (err) {
       console.error("Attachment upload failed:", err);
@@ -148,8 +167,9 @@ export function AssistantChatbot({
     }
   };
 
-  const handleSendMessage = async () => {
-    const userMessage = inputValue;
+  const handleSendMessage = async (messageOverride?: string) => {
+    const userMessage = messageOverride ?? inputValue;
+    if (!userMessage.trim() && attachments.length === 0) return;
     const currentAttachments = attachments;
     const userMsg: Message = {
       id: `user-${Date.now()}`,
@@ -261,7 +281,7 @@ export function AssistantChatbot({
                   : "bg-white border rounded-bl-none shadow-sm text-slate-800"
               }`}
             >
-              <div dangerouslySetInnerHTML={{ __html: msg.content }} />
+              <div dangerouslySetInnerHTML={{ __html: stripScripts(msg.content) }} />
               {msg.medias && msg.medias.length > 0 && (
                 <div className="mt-2 space-y-2">
                   {msg.medias.map((media) => {

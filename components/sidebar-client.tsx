@@ -13,6 +13,7 @@ import {
   Blocks,
   PenLine,
   FolderOpen,
+  Sparkles,
 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
@@ -39,6 +40,10 @@ const NAV_LINKS = [
 const SETTINGS_LINKS = [
   { href: "/settings/ai-assistant", icon: Settings, label: "AI Assistant" },
   { href: "/settings/integrations", icon: Blocks, label: "Integrations" },
+];
+
+const CREATE_LINKS = [
+  { href: "/studio/illustration", icon: Sparkles, label: "Illustration" },
 ];
 
 export function SidebarClient({ recentProjects }: { recentProjects: Project[] }) {
@@ -149,6 +154,41 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
           </div>
 
           {/* Create — hidden for now */}
+
+          {/* Create */}
+          <div className={cn("px-3 pt-4")}>
+            {!collapsed && (
+              <h2 className="mb-2 px-4 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                Create
+              </h2>
+            )}
+            <div className="space-y-1">
+              {CREATE_LINKS.map(({ href, icon: Icon, label }) =>
+                collapsed ? (
+                  <Tooltip key={label}>
+                    <TooltipTrigger>
+                      <Link
+                        href={href}
+                        className="flex items-center justify-center h-9 w-9 mx-auto rounded-md hover:bg-muted/50 transition-colors text-muted-foreground"
+                      >
+                        <Icon className="h-4 w-4" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{label}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Link
+                    key={label}
+                    href={href}
+                    className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </Link>
+                ),
+              )}
+            </div>
+          </div>
 
           {/* Recent Projects */}
           {recentProjects.length > 0 && (
