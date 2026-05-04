@@ -51,6 +51,12 @@ Note: saturation levels, contrast ratios, how shadow/highlight colors relate
 to base colors, and any distinctive color harmony patterns.
 Output ONLY the palette analysis text. Be specific and concise. Max 150 words.`;
 
+const PROPORTION_SYSTEM = `You are an expert colour strategist specialising in illustration.
+Examine the provided sample image(s) and describe how the brand colours are
+proportionally distributed — which colour dominates (background/fill), which
+acts as an accent, and how much white/negative space is used.
+Output ONLY the proportion analysis text. Be specific and concise. Max 120 words.`;
+
 const USAGE_SYSTEM = `You are an expert illustration analyst.
 Examine the provided usage example image and describe its composition, context,
 and usage pattern in actionable terms.
@@ -68,14 +74,16 @@ You receive a JSON object describing a brand's visual settings.
 
 Steps you MUST follow in order:
 1. Call analyze_illustration_palette with the sample_image_urls from illustration.brand_colour_palette.
-2. For each item in illustration.usages, call analyze_usage_context with its
+2. Call analyze_colour_proportion with the sample_image_urls from illustration.brand_colour_proportion (skip if no images).
+3. For each item in illustration.usages, call analyze_usage_context with its
    index, description, and image_url.
-3. For each item in illustration.characters, call analyze_character with its
+4. For each item in illustration.characters, call analyze_character with its
    char_index, name, reference_image_url, and the full guidelines array.
-4. Once ALL tool calls are complete, output ONLY a valid JSON object with no
+5. Once ALL tool calls are complete, output ONLY a valid JSON object with no
    markdown fences or explanation:
 {
   "paletteAnalysis": "<result from analyze_illustration_palette>",
+  "proportionAnalysis": "<result from analyze_colour_proportion, or empty string>",
   "usageAnalyses": ["<result for index 0>", "<result for index 1>", ...],
   "characterAnalyses": [
     { "guidelineAnalyses": ["...", null, ...] },
@@ -119,6 +127,7 @@ export async function runBrandContextCompiler(
   // Per-call captures so tool results are scoped to this invocation
   const captures = {
     palette: "",
+    proportion: "",
     usages: [] as string[],
     characters: [] as Array<{ guidelineAnalyses: (string | null)[] }>,
   };
@@ -139,6 +148,25 @@ export async function runBrandContextCompiler(
         image_urls,
       );
       captures.palette = analysis;
+      return analysis;
+    },
+  });
+
+  const analyzeProportionTool = tool({
+    name: "analyze_colour_proportion",
+    description:
+      "Analyse how brand colours are proportionally distributed from proportion sample images. Skip if there are no images.",
+    parameters: z.object({
+      image_urls: z.array(z.string()).describe("Signed URLs of colour proportion sample images"),
+    }),
+    async execute({ image_urls }) {
+      if (image_urls.length === 0) return "";
+      const analysis = await callVisionLLM(
+        PROPORTION_SYSTEM,
+        `Analyse the colour proportion distribution shown in ${image_urls.length} image(s).`,
+        image_urls,
+      );
+      captures.proportion = analysis;
       return analysis;
     },
   });
@@ -206,6 +234,10 @@ export async function runBrandContextCompiler(
     .map((m) => resolve(m.url))
     .filter(Boolean);
 
+  const proportionSampleUrls = (illustration?.colour_proportion_samples ?? [])
+    .map((m) => resolve(m.url))
+    .filter(Boolean);
+
   const usages = (illustration?.usages ?? []).map((u, i) => ({
     index: i,
     description: u.description,
@@ -234,6 +266,10 @@ export async function runBrandContextCompiler(
               palette_user_description: illustration.palette_description ?? "",
               sample_image_urls: paletteSampleUrls,
             },
+            brand_colour_proportion: {
+              proportion_user_description: illustration.colour_proportion_description ?? "",
+              sample_image_urls: proportionSampleUrls,
+            },
             facial_colour_palette: {
               hair_colors: illustration.colour_palette?.hair_colors ?? [],
               skin_tone_colors: illustration.colour_palette?.skin_tone_colors ?? [],
@@ -255,7 +291,7 @@ export async function runBrandContextCompiler(
     name: "Brand Context Compiler",
     instructions: COMPILER_INSTRUCTIONS,
     model: MODEL,
-    tools: [analyzePaletteTool, analyzeUsageContextTool, analyzeCharacterTool],
+    tools: [analyzePaletteTool, analyzeProportionTool, analyzeUsageContextTool, analyzeCharacterTool],
   });
 
   const result = await run(compilerAgent, agentInput);
@@ -295,6 +331,7 @@ export async function runBrandContextCompiler(
   return {
     analyses: {
       paletteAnalysis: parsed.paletteAnalysis ?? captures.palette,
+      proportionAnalysis: parsed.proportionAnalysis ?? captures.proportion,
       usageAnalyses,
       characterAnalyses,
     },

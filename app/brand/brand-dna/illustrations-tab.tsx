@@ -40,6 +40,7 @@ import {
 
 const MAX_STYLE_IMAGES = 5;
 const MAX_PALETTE_IMAGES = 5;
+const MAX_PROPORTION_IMAGES = 5;
 
 const AGE_GROUPS: CharacterAgeGroup[] = ["Young", "Teenager", "Adult", "Senior"];
 
@@ -57,6 +58,8 @@ const DEFAULT_ILLU_SETTINGS: IllustrationSettings = {
   style_description: "",
   style_samples: [],
   palette_description: "",
+  colour_proportion_description: "",
+  colour_proportion_samples: [],
   colour_palette: {
     hair_colors: [],
     skin_tone_colors: [],
@@ -182,6 +185,7 @@ export function IllustrationsTab({
     ...DEFAULT_ILLU_SETTINGS,
     ...src,
     style_samples: src?.style_samples ?? [],
+    colour_proportion_samples: src?.colour_proportion_samples ?? [],
     colour_palette: {
       ...DEFAULT_ILLU_SETTINGS.colour_palette,
       ...src?.colour_palette,
@@ -199,6 +203,10 @@ export function IllustrationsTab({
 
   const [paletteSamples, setPaletteSamples] = useState<IllustrationItem[]>(() =>
     initIllu.colour_palette.sample_images.map((m) => makeItem(m, m.url)),
+  );
+
+  const [proportionSamples, setProportionSamples] = useState<IllustrationItem[]>(() =>
+    initIllu.colour_proportion_samples.map((m) => makeItem(m, m.url)),
   );
 
   const [usageSamples, setUsageSamples] = useState<(IllustrationItem | null)[]>(
@@ -242,6 +250,7 @@ export function IllustrationsTab({
   const isAnyUploading =
     styleSamples.some((i) => i.uploading) ||
     paletteSamples.some((i) => i.uploading) ||
+    proportionSamples.some((i) => i.uploading) ||
     usageSamples.some((i) => i?.uploading) ||
     characters.some(
       (c) =>
@@ -254,9 +263,11 @@ export function IllustrationsTab({
     JSON.stringify(illuData) !== JSON.stringify(initIllu) ||
     styleSamples.some((i) => i.media.url.startsWith("temp/")) ||
     paletteSamples.some((i) => i.media.url.startsWith("temp/")) ||
+    proportionSamples.some((i) => i.media.url.startsWith("temp/")) ||
     usageSamples.some((i) => i?.media.url.startsWith("temp/")) ||
     styleSamples.length !== initIllu.style_samples.length ||
     paletteSamples.length !== initIllu.colour_palette.sample_images.length ||
+    proportionSamples.length !== initIllu.colour_proportion_samples.length ||
     usageSamples.length !== initIllu.usages.length ||
     characters.length !== initIllu.characters.length;
 
@@ -498,6 +509,7 @@ export function IllustrationsTab({
       const settingsToSave: IllustrationSettings = {
         ...illuData,
         style_samples: styleSamples.map((i) => i.media),
+        colour_proportion_samples: proportionSamples.map((i) => i.media),
         colour_palette: {
           ...illuData.colour_palette,
           sample_images: paletteSamples.map((i) => i.media),
@@ -721,7 +733,56 @@ export function IllustrationsTab({
           </AccordionContent>
         </AccordionItem>
 
-        {/* Section 3 — Characters */}
+        {/* Section 3 — Colour proportion */}
+        <AccordionItem value="proportion" className="border rounded-lg overflow-hidden">
+          <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-slate-50 transition-colors">
+            <div>
+              <p className="text-sm font-semibold text-left">Colour proportion</p>
+              <p className="text-xs text-muted-foreground font-normal mt-0.5 text-left">
+                Describe how your brand colours should be proportionally distributed in illustrations.
+              </p>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="px-4 pb-4">
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="colour_proportion_description" className="text-sm font-medium">
+                  Description{" "}
+                  <span className="ml-1 text-xs text-muted-foreground font-normal">(optional)</span>
+                </Label>
+                <Textarea
+                  id="colour_proportion_description"
+                  placeholder="e.g. Red is dominant at 60%, white at 30%, dark accents at 10%..."
+                  value={illuData.colour_proportion_description ?? ""}
+                  onChange={(e) =>
+                    setIlluData((prev) => ({
+                      ...prev,
+                      colour_proportion_description: e.target.value,
+                    }))
+                  }
+                  className="min-h-[80px]"
+                />
+              </div>
+              <ImageGrid
+                items={proportionSamples}
+                max={MAX_PROPORTION_IMAGES}
+                onAdd={(files) =>
+                  addSamplesToSetter(
+                    files,
+                    proportionSamples,
+                    MAX_PROPORTION_IMAGES,
+                    setProportionSamples,
+                  )
+                }
+                onRemove={(id) =>
+                  setProportionSamples((prev) => prev.filter((i) => i.clientId !== id))
+                }
+              />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Section 4 — Characters */}
         <AccordionItem value="characters" className="border rounded-lg overflow-hidden">
           <AccordionPrimitive.Header className="flex items-center hover:bg-slate-50 transition-colors">
             <AccordionPrimitive.Trigger className="group/accordion-trigger flex-1 flex items-center justify-between px-4 py-3 text-left text-sm font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
@@ -948,7 +1009,7 @@ export function IllustrationsTab({
           </AccordionContent>
         </AccordionItem>
 
-        {/* Section 4 — Default characters facial colours */}
+        {/* Section 5 — Default characters facial colours */}
         <AccordionItem value="facial-colours" className="border rounded-lg overflow-hidden">
           <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-slate-50 transition-colors">
             <div>
@@ -976,7 +1037,7 @@ export function IllustrationsTab({
             </div>
           </AccordionContent>
         </AccordionItem>
-        {/* Section 5 — Additional patterns */}
+        {/* Section 6 — Additional patterns */}
         <AccordionItem value="usage" className="border rounded-lg overflow-hidden">
           <AccordionPrimitive.Header className="flex items-center hover:bg-slate-50 transition-colors">
             <AccordionPrimitive.Trigger className="group/accordion-trigger flex-1 flex items-center justify-between px-4 py-3 text-left text-sm font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/50">

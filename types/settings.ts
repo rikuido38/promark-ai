@@ -63,6 +63,10 @@ export interface IllustrationSettings {
   colour_palette: IllustrationColourPalette;
   /** Optional context about the colour palette for AI */
   palette_description?: string;
+  /** Optional context about colour proportions for AI */
+  colour_proportion_description?: string;
+  /** Sample images illustrating colour proportions */
+  colour_proportion_samples: import("@/types/models").Media[];
   usages: IllustrationUsage[];
   characters: IllustrationCharacter[];
 }

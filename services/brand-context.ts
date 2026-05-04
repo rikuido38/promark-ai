@@ -117,7 +117,7 @@ export async function getBrandContext(
   // Guard against stale/incomplete rows (e.g. compiled before brand settings existed)
   if (!raw?.brand) return null;
 
-  const [logoUrl, styleSampleUrls, paletteImageUrls, usageSampleUrls, characterData] =
+  const [logoUrl, styleSampleUrls, paletteImageUrls, proportionImageUrls, usageSampleUrls, characterData] =
     await Promise.all([
       resolveSignedUrl(supabase, raw.brand.logo_path, SUPABASE_BUCKET_NAME),
       Promise.all(
@@ -127,6 +127,11 @@ export async function getBrandContext(
       ),
       Promise.all(
         (raw.illustration?.brand_colour_palette?.sample_image_paths ?? []).map((p) =>
+          resolveSignedUrl(supabase, p, SUPABASE_BUCKET_NAME),
+        ),
+      ),
+      Promise.all(
+        (raw.illustration?.brand_colour_proportion?.sample_image_paths ?? []).map((p) =>
           resolveSignedUrl(supabase, p, SUPABASE_BUCKET_NAME),
         ),
       ),
@@ -167,6 +172,13 @@ export async function getBrandContext(
             sample_image_urls: paletteImageUrls.filter((u): u is string => !!u),
             palette_style_prompt: raw.illustration.brand_colour_palette?.palette_style_prompt ?? "",
           },
+          brand_colour_proportion: raw.illustration.brand_colour_proportion
+            ? {
+                proportion_user_description: raw.illustration.brand_colour_proportion.proportion_user_description,
+                sample_image_urls: proportionImageUrls.filter((u): u is string => !!u),
+                proportion_style_prompt: raw.illustration.brand_colour_proportion.proportion_style_prompt,
+              }
+            : undefined,
           facial_colour_palette: {
             hair_colors: (raw.illustration.facial_colour_palette?.hair_colors ?? (raw.illustration as any).colour_palette?.hair_colors ?? []).map(sanitizeColor),
             skin_tone_colors: (raw.illustration.facial_colour_palette?.skin_tone_colors ?? (raw.illustration as any).colour_palette?.skin_tone_colors ?? []).map(sanitizeColor),
@@ -239,6 +251,11 @@ export function buildContextDocument(
               (m) => m.url,
             ),
             palette_style_prompt: analyses?.paletteAnalysis ?? "",
+          },
+          brand_colour_proportion: {
+            proportion_user_description: illustration.colour_proportion_description,
+            sample_image_paths: (illustration.colour_proportion_samples ?? []).map((m) => m.url),
+            proportion_style_prompt: analyses?.proportionAnalysis ?? "",
           },
           facial_colour_palette: {
             hair_colors: (illustration.colour_palette?.hair_colors ?? []).map(sanitizeColor),

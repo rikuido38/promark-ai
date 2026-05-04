@@ -5,6 +5,7 @@
  */
 export interface IllustrationAnalysisResults {
   paletteAnalysis: string;
+  proportionAnalysis: string;
   usageAnalyses: (string | null)[];
   characterAnalyses: Array<{
     guidelineAnalyses: (string | null)[];
@@ -51,6 +52,14 @@ export interface BrandIllustrationContextRaw {
       sample_image_paths: string[];
       /** AI vision analysis of palette sample images */
       palette_style_prompt: string;
+    };
+    brand_colour_proportion?: {
+      /** User description of colour proportions */
+      proportion_user_description?: string;
+      /** Raw storage paths for proportion sample images */
+      sample_image_paths: string[];
+      /** AI vision analysis of proportion sample images */
+      proportion_style_prompt: string;
     };
     facial_colour_palette: {
       hair_colors: import("@/types/settings").PaletteColor[];
@@ -113,6 +122,13 @@ export interface BrandIllustrationContext {
       sample_image_urls: string[];
       /** AI vision analysis of palette sample images */
       palette_style_prompt: string;
+    };
+    brand_colour_proportion?: {
+      /** User description of colour proportions */
+      proportion_user_description?: string;
+      sample_image_urls: string[];
+      /** AI vision analysis of proportion sample images */
+      proportion_style_prompt: string;
     };
     facial_colour_palette: {
       hair_colors: import("@/types/settings").PaletteColor[];
