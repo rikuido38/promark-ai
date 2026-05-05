@@ -56,10 +56,10 @@ function historyToMessages(history: StudioThreadChat[]): Message[] {
     content: row.content,
     medias: row.role === "assistant"
       ? row.image_signed_urls.map((url, i) => ({
-          filename: row.image_storage_paths[i] ?? url,
+          filename: row.medias[i] ?? url,
           signedUrl: url,
           type: "image" as const,
-          storagePath: row.image_storage_paths[i],
+          storagePath: row.medias[i],
         }))
       : [],
   }));
@@ -92,10 +92,10 @@ export function ThreadWorkspace({
     }
     return chatHistory.flatMap((row) =>
       row.image_signed_urls.map((url, i) => ({
-        filename: row.image_storage_paths[i] ?? url,
+        filename: row.medias[i] ?? url,
         signedUrl: url,
         type: "image" as const,
-        storagePath: row.image_storage_paths[i],
+        storagePath: row.medias[i],
       })),
     );
   };

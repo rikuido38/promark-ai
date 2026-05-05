@@ -15,7 +15,7 @@ export interface StudioThread {
   type: StudioThreadType;
   prompt: string | null;
   model: string | null;
-  is_first_trigger: boolean;
+  is_new_chat: boolean;
   created_at: string;
 }
 
@@ -24,7 +24,7 @@ export interface StudioThreadChat {
   thread_id: string;
   role: "user" | "assistant";
   content: string;
-  image_storage_paths: string[];
+  medias: string[];
   image_signed_urls: string[]; // resolved at load time, not stored
   created_at: string;
 }
@@ -81,7 +81,7 @@ export async function saveChatMessage(
     thread_id: threadId,
     role,
     content,
-    image_storage_paths: imageStoragePaths,
+    medias: imageStoragePaths,
     created_at: new Date().toISOString(),
   });
 }
@@ -98,7 +98,7 @@ export async function loadChatHistory(threadId: string): Promise<StudioThreadCha
 
   if (rows.length === 0) return [];
 
-  const allPaths = rows.flatMap((r) => (r.image_storage_paths as string[]) ?? []);
+  const allPaths = rows.flatMap((r) => (r.medias as string[]) ?? []);;
   const signedUrlMap = new Map<string, string>();
 
   if (allPaths.length > 0) {
@@ -116,8 +116,8 @@ export async function loadChatHistory(threadId: string): Promise<StudioThreadCha
     thread_id: r.thread_id as string,
     role: r.role as "user" | "assistant",
     content: r.content as string,
-    image_storage_paths: (r.image_storage_paths as string[]) ?? [],
-    image_signed_urls: ((r.image_storage_paths as string[]) ?? [])
+    medias: (r.medias as string[]) ?? [],
+    image_signed_urls: ((r.medias as string[]) ?? [])
       .map((p) => signedUrlMap.get(p) ?? "")
       .filter(Boolean),
     created_at: r.created_at as string,
@@ -136,11 +136,11 @@ export async function loadLastAssistantImages(
     .find({ thread_id: threadId, role: "assistant" })
     .sort({ created_at: -1 })
     .limit(1)
-    .project({ image_storage_paths: 1 })
+    .project({ medias: 1 })
     .toArray();
 
   const row = rows[0];
-  const paths: string[] = (row?.image_storage_paths as string[] | undefined) ?? [];
+  const paths: string[] = (row?.medias as string[] | undefined) ?? [];
   console.log("[loadLastAssistantImages] threadId =", threadId, "| row found =", !!row, "| paths =", paths);
 
   if (paths.length === 0) return [];
@@ -176,7 +176,7 @@ export async function getStudioThread(threadId: string): Promise<StudioThread | 
     type: row.type as StudioThreadType,
     prompt: row.prompt as string | null,
     model: row.model as string | null,
-    is_first_trigger: row.is_first_trigger as boolean,
+    is_new_chat: row.is_new_chat as boolean,
     created_at: row.created_at as string,
   };
 }
