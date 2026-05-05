@@ -495,11 +495,6 @@ function buildIllustrationAgent(
           type: "image_generation",
           model: imageModel,
           quality: genSettings?.quality ?? "high",
-          // Only pass background to models that support transparent backgrounds.
-          // gpt-image-2 does not; omit the param entirely for unsupported models.
-          ...(genSettings?.background && genSettings.background !== "auto" &&
-            !(genSettings.background === "transparent" && imageModel === "gpt-image-2")
-            ? { background: genSettings.background } : {}),
           ...(genSettings?.size && genSettings.size !== "auto" ? { size: genSettings.size } : {}),
         }],
       };
@@ -559,23 +554,10 @@ function buildIllustrationAgent(
     async () => {
       if (!capturedImageBuffer) throw new Error("generate_illustration must be called first.");
 
-      const fmt = genSettings?.outputFormat ?? "png";
       const compression = genSettings?.compression ?? 85;
-
-      let compressed: Buffer;
-      let contentType: string;
-      let ext: string;
-      if (fmt === "webp") {
-        compressed = await sharp(capturedImageBuffer).webp({ quality: compression }).toBuffer();
-        contentType = "image/webp";
-        ext = "webp";
-      } else {
-        compressed = await sharp(capturedImageBuffer)
-          .png({ effort: 10, adaptiveFiltering: true })
-          .toBuffer();
-        contentType = "image/png";
-        ext = "png";
-      }
+      const compressed = await sharp(capturedImageBuffer).jpeg({ quality: compression }).toBuffer();
+      const contentType = "image/jpeg";
+      const ext = "jpg";
 
       const filename = `${crypto.randomUUID()}.${ext}`;
       const storagePath = `temp/${DEFAULT_ORG_ID}/${filename}`;

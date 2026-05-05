@@ -38,8 +38,6 @@ const SIZE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const QUALITY_LABELS: Record<string, string> = { low: "Low", medium: "Medium", high: "High" };
-const BACKGROUND_LABELS: Record<string, string> = { transparent: "Transparent", opaque: "Opaque", auto: "Automatic" };
-const FORMAT_LABELS: Record<string, string> = { png: "PNG", webp: "WebP" };
 
 interface Props {
   tabKey: GenerationTabKey;
@@ -84,8 +82,6 @@ export function GenerationSettingsButton({
     if (next) setDraft(settings);
     setOpen(next);
   }
-
-  const compressionDisabled = draft.outputFormat === "png";
 
   return (
     <>
@@ -160,22 +156,6 @@ export function GenerationSettingsButton({
               </SelectContent>
             </Select>
 
-            {/* Background */}
-            <Label>Background</Label>
-            <Select
-              value={draft.background}
-              onValueChange={(v) => set("background", v as GenerationSettings["background"])}
-            >
-              <SelectTrigger className="w-44">
-                <SelectValue>{BACKGROUND_LABELS[draft.background] ?? draft.background}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="transparent">Transparent</SelectItem>
-                <SelectItem value="opaque">Opaque</SelectItem>
-                <SelectItem value="auto">Automatic</SelectItem>
-              </SelectContent>
-            </Select>
-
             {/* Size */}
             <Label>Size</Label>
             <Select
@@ -194,37 +174,16 @@ export function GenerationSettingsButton({
               </SelectContent>
             </Select>
 
-            {/* Output format */}
-            <Label>Output format</Label>
-            <Select
-              value={draft.outputFormat}
-              onValueChange={(v) => set("outputFormat", v as GenerationSettings["outputFormat"])}
-            >
-              <SelectTrigger className="w-44">
-                <SelectValue>{FORMAT_LABELS[draft.outputFormat] ?? draft.outputFormat}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="png">PNG</SelectItem>
-                <SelectItem value="webp">WebP</SelectItem>
-              </SelectContent>
-            </Select>
-
             {/* Compression */}
-            <Label className={compressionDisabled ? "text-slate-400" : undefined}>
-              Compression — {draft.compression}%
-            </Label>
+            <Label>Compression — {draft.compression}%</Label>
             <div className="flex w-44 flex-col gap-1">
               <Slider
                 min={0}
                 max={100}
                 step={1}
-                disabled={compressionDisabled}
                 value={draft.compression}
-                onValueChange={(v) => set("compression", v as number)}
+                onValueChange={(v) => set("compression", v)}
               />
-              {compressionDisabled && (
-                <p className="text-xs text-slate-400">JPEG / WebP only</p>
-              )}
             </div>
           </div>
 
