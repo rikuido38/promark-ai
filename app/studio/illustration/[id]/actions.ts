@@ -124,6 +124,43 @@ export async function loadChatHistory(threadId: string): Promise<StudioThreadCha
   }));
 }
 
+// ── Load signed URLs from the last assistant message ────────────────────────
+
+export async function loadLastAssistantImages(
+  threadId: string,
+): Promise<Array<{ filename: string; signedUrl: string; storagePath: string }>> {
+  const db = await getDb();
+  // Use find().sort().limit(1) instead of findOne() to reliably apply sort.
+  const rows = await db
+    .collection(COLLECTIONS.STUDIO_THREAD_CHATS)
+    .find({ thread_id: threadId, role: "assistant" })
+    .sort({ created_at: -1 })
+    .limit(1)
+    .project({ image_storage_paths: 1 })
+    .toArray();
+
+  const row = rows[0];
+  const paths: string[] = (row?.image_storage_paths as string[] | undefined) ?? [];
+  console.log("[loadLastAssistantImages] threadId =", threadId, "| row found =", !!row, "| paths =", paths);
+
+  if (paths.length === 0) return [];
+
+  const storage = createStorageClient();
+  const { data: signed, error } = await storage.storage
+    .from(SUPABASE_BUCKET_NAME)
+    .createSignedUrls(paths, 3600);
+
+  console.log("[loadLastAssistantImages] signed count =", signed?.length ?? 0, "| error =", error);
+
+  return (signed ?? [])
+    .filter((s) => s.signedUrl && s.path)
+    .map((s) => ({
+      filename: s.path.split("/").pop() ?? s.path,
+      signedUrl: s.signedUrl,
+      storagePath: s.path,
+    }));
+}
+
 // ── Fetch a single thread ─────────────────────────────────────────────────────
 
 export async function getStudioThread(threadId: string): Promise<StudioThread | null> {

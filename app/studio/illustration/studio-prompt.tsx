@@ -87,13 +87,18 @@ export function StudioPrompt() {
     if (!trimmed && attachments.length === 0) return;
     const messageWithAttachments =
       attachments.length > 0
-        ? `${trimmed}\n\nAttached images:\n${attachments.map((a) => a.signedUrl).join("\n")}`
+        ? `${trimmed}
+
+__IMG_REFS__
+${attachments.map((a) => a.signedUrl).join("\n")}`
         : trimmed;
     const threadId = crypto.randomUUID();
     setSubmitting(true);
     setValue("");
     setAttachments([]);
     try {
+      // Store full message (with attachment URLs) as the prompt so the thread
+      // auto-sends it with images on load, but display only the clean text.
       await upsertStudioThread(threadId, "illustration", messageWithAttachments, selectedModel || undefined);
       router.push(`/studio/illustration/${threadId}`);
     } catch (err) {

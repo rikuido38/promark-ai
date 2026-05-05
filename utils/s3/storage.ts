@@ -18,6 +18,10 @@ function getS3Client(): S3Client {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
       },
+      // Disable default integrity checksums so signed URLs don't include
+      // x-amz-checksum-mode=ENABLED, which can confuse browser CORS preflights.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
   return _client;

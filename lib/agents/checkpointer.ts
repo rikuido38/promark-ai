@@ -1,43 +1,48 @@
 // ---------------------------------------------------------------------------
-// LangGraph Checkpointer — Supabase Postgres
+// LangGraph Checkpointer — MongoDB
 //
-// Replaces the in-memory MemorySaver with a persistent PostgresSaver backed
-// by the Supabase Postgres database. Conversation history survives process
-// restarts, serverless cold starts, and multi-instance deployments.
+// Replaces the Supabase PostgresSaver with a MongoDBSaver backed by the
+// existing MongoDB cluster. Conversation history survives process restarts,
+// serverless cold starts, and multi-instance deployments.
 //
-// Required environment variable:
-//   DATABASE_URL — Supabase session-pooler or direct connection string.
-//   Format: postgresql://postgres.[ref]:[password]@[host]:5432/postgres
-//   ⚠  Use the Session Pooler (port 5432), NOT the Transaction Pooler
-//      (port 6543), because pg.Pool uses persistent connections that are
-//      incompatible with PgBouncer transaction mode.
-//
-// The setup() call creates the required LangGraph tables on first run:
-//   checkpoints, checkpoint_blobs, checkpoint_writes
-// Subsequent calls are no-ops once the tables exist.
+// Uses the same MONGODB_URL env var as the rest of the app.
+// LangGraph checkpoint data is stored in the "checkpoints" collection inside
+// the "promark-ai" database.
 // ---------------------------------------------------------------------------
 
-import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { MongoDBSaver } from "@langchain/langgraph-checkpoint-mongodb";
+import { MongoClient } from "mongodb";
 
-let _checkpointer: PostgresSaver | null = null;
+let _checkpointer: MongoDBSaver | null = null;
+let _client: MongoClient | null = null;
 
 /**
- * Returns a singleton PostgresSaver. Creates the LangGraph checkpoint tables
- * on the first call. Thread-safe within a single process; multiple serverless
- * instances each maintain their own pool (this is expected and harmless).
+ * Returns a singleton MongoDBSaver. Creates the LangGraph checkpoint
+ * collections on the first call.
  */
-export async function getCheckpointer(): Promise<PostgresSaver> {
+export async function getCheckpointer(): Promise<MongoDBSaver> {
   if (_checkpointer) return _checkpointer;
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.MONGODB_URL;
   if (!connectionString) {
     throw new Error(
-      "DATABASE_URL is not set. Add your Supabase session-pooler connection string to .env.local.",
+      "MONGODB_URL is not set. Add your MongoDB connection string to .env.local.",
     );
   }
 
-  const saver = PostgresSaver.fromConnString(connectionString);
-  await saver.setup();
+  _client = new MongoClient(connectionString);
+  await _client.connect();
+
+  const saver = new MongoDBSaver({ client: _client, dbName: "promark-ai" });
+
+  // Patch putWrites to guard against the "Batch cannot be empty" MongoDB error
+  // that occurs when LangGraph calls putWrites with an empty writes array.
+  const originalPutWrites = saver.putWrites.bind(saver);
+  saver.putWrites = async (config, writes, taskId) => {
+    if (!writes || writes.length === 0) return;
+    return originalPutWrites(config, writes, taskId);
+  };
+
   _checkpointer = saver;
   return _checkpointer;
 }

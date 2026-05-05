@@ -19,9 +19,9 @@ export function DraftAssistantSetup() {
     setAssistantIdentifier("draft-illustration");
 
     const handler = async (message: string, model?: string, settings?: GenerationSettings): Promise<AssistantOutput> => {
-      // The chatbot appends attachment URLs as "\n\nAttached images:\n{url}\n{url}".
+      // The chatbot appends attachment URLs after an internal "__IMG_REFS__" marker.
       // Split them out so we can send a clean prompt + structured URL list.
-      const attachSplit = message.split("\n\nAttached images:\n");
+      const attachSplit = message.split("\n\n__IMG_REFS__\n");
       const prompt = attachSplit[0].trim();
       const sampleImageUrls = attachSplit[1]
         ? attachSplit[1].split("\n").map((u) => u.trim()).filter(Boolean)

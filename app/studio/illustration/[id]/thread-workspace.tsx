@@ -19,6 +19,7 @@ interface ThreadWorkspaceProps {
   initialModel?: string;
   isNewChat: boolean;
   chatHistory: StudioThreadChat[];
+  initialMedias?: Array<{ filename: string; signedUrl: string; storagePath: string }>;
 }
 
 async function illustrationHandler(
@@ -26,7 +27,7 @@ async function illustrationHandler(
   model?: string,
   settings?: GenerationSettings,
 ): Promise<AssistantOutput> {
-  const attachSplit = message.split("\n\nAttached images:\n");
+  const attachSplit = message.split("\n\n__IMG_REFS__\n");
   const prompt = attachSplit[0].trim();
   const sampleImageUrls = attachSplit[1]
     ? attachSplit[1].split("\n").map((u) => u.trim()).filter(Boolean)
@@ -53,7 +54,14 @@ function historyToMessages(history: StudioThreadChat[]): Message[] {
     id: row.id,
     role: row.role,
     content: row.content,
-    medias: [],
+    medias: row.role === "assistant"
+      ? row.image_signed_urls.map((url, i) => ({
+          filename: row.image_storage_paths[i] ?? url,
+          signedUrl: url,
+          type: "image" as const,
+          storagePath: row.image_storage_paths[i],
+        }))
+      : [],
   }));
 }
 
@@ -63,16 +71,44 @@ export function ThreadWorkspace({
   initialModel,
   isNewChat,
   chatHistory,
+  initialMedias,
 }: ThreadWorkspaceProps) {
   // isNewChat comes from the DB — use it only to fire the DB update.
   // For the actual auto-send decision we use chatHistory.length === 0 so
   // there is no dependency on DB round-trip timing.
   const isNewChatLocal = chatHistory.length === 0;
   const chatbotRef = useRef<AssistantChatbotHandle>(null);
+  const [requestedPreviewUrl, setRequestedPreviewUrl] = useState<{ url: string; seq: number } | undefined>(undefined);
+
+  // Compute the initial media list once (shared by allMedias and currentMedia init).
+  const getInitialMediaList = (): MediaItem[] => {
+    if (initialMedias && initialMedias.length > 0) {
+      return initialMedias.map((m) => ({
+        filename: m.filename,
+        signedUrl: m.signedUrl,
+        type: "image" as const,
+        storagePath: m.storagePath,
+      }));
+    }
+    return chatHistory.flatMap((row) =>
+      row.image_signed_urls.map((url, i) => ({
+        filename: row.image_storage_paths[i] ?? url,
+        signedUrl: url,
+        type: "image" as const,
+        storagePath: row.image_storage_paths[i],
+      })),
+    );
+  };
+
+  // The image currently active in the preview panel — auto-attached to every AI message.
+  const [currentMedia, setCurrentMedia] = useState<MediaItem | null>(() => {
+    const list = getInitialMediaList();
+    return list.length > 0 ? (list.at(-1) ?? null) : null;
+  });
 
   const handleEditorExport = (base64: string) => {
     chatbotRef.current?.sendMessage(
-      `Please refine this edited image.\n\nAttached images:\n${base64}`,
+      `Please refine this edited image.\n\n__IMG_REFS__\n${base64}`,
     );
   };
 
@@ -84,38 +120,47 @@ export function ThreadWorkspace({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Collect all medias from history + live responses for the right panel
-  const [allMedias, setAllMedias] = useState<MediaItem[]>(() =>
-    chatHistory.flatMap((row) =>
-      row.image_signed_urls.map((url, i) => ({
-        filename: row.image_storage_paths[i] ?? url,
-        signedUrl: url,
-        type: "image" as const,
-        storagePath: row.image_storage_paths[i],
-      })),
-    ),
-  );
+  // Seed the preview panel with images from the last assistant reply on load.
+  // Falls back to scanning full chat history if the dedicated query returned nothing.
+  const [allMedias, setAllMedias] = useState<MediaItem[]>(getInitialMediaList);
 
   const handleSendMessage = async (
     message: string,
     model?: string,
     settings?: GenerationSettings,
   ): Promise<AssistantOutput> => {
-    // Save user message
-    await saveChatMessage(threadId, "user", message);
+    // Strip attachment URLs from the displayed user message (they are only for the API)
+    const displayMessage = message.split("\n\n__IMG_REFS__\n")[0].trim();
+    await saveChatMessage(threadId, "user", displayMessage);
 
-    const output = await illustrationHandler(message, model, settings);
+    // Auto-prepend the current working image so AI always has the latest canvas as context.
+    let messageForAI = message;
+    if (currentMedia) {
+      const [promptPart, existingRefs] = message.split("\n\n__IMG_REFS__\n");
+      const refList = existingRefs ? existingRefs.split("\n").filter(Boolean) : [];
+      if (!refList.includes(currentMedia.signedUrl)) {
+        refList.unshift(currentMedia.signedUrl);
+      }
+      messageForAI = `${promptPart}\n\n__IMG_REFS__\n${refList.join("\n")}`;
+    }
+
+    const output = await illustrationHandler(messageForAI, model, settings);
 
     // Collect image storage paths from medias
     const imageStoragePaths = (output.medias ?? [])
       .filter((m) => m.storagePath)
       .map((m) => m.storagePath as string);
 
-    // Save AI response (text + image paths)
-    await saveChatMessage(threadId, "assistant", output.text, imageStoragePaths);
+    // Strip any <img> tags the LLM may have embedded — images are shown in the right panel only
+    // eslint-disable-next-line unicorn/prefer-string-replace-all
+    const textOnly = output.text.replace(/<img\b[^>]*>/gi, "").trim();
+    await saveChatMessage(threadId, "assistant", textOnly, imageStoragePaths);
 
-    // Update preview panel with new images
+    // Update preview panel with new images; the first new image auto-becomes current.
     if (output.medias && output.medias.length > 0) {
+      const firstNew = output.medias[0];
+      setCurrentMedia(firstNew);
+      setRequestedPreviewUrl((prev) => ({ url: firstNew.signedUrl, seq: (prev?.seq ?? 0) + 1 }));
       setAllMedias((prev) => {
         const existingUrls = new Set(prev.map((m) => m.signedUrl));
         const newMedias = output.medias.filter((m) => !existingUrls.has(m.signedUrl));
@@ -123,8 +168,8 @@ export function ThreadWorkspace({
       });
     }
 
-    // Return text-only to the chatbot — images shown in right panel only
-    return { ...output, medias: [] };
+    // Return medias to the chatbot for thumbnail display
+    return { ...output, text: textOnly };
   };
 
   const restoredMessages = isNewChatLocal ? undefined : historyToMessages(chatHistory);
@@ -144,6 +189,16 @@ export function ThreadWorkspace({
             autoSendMessage={isNewChatLocal ? initialPrompt : undefined}
             initialModel={initialModel}
             initialMessages={restoredMessages}
+            currentMediaUrl={currentMedia?.signedUrl}
+            onUseAsCurrent={(media) => {
+              setCurrentMedia(media);
+              // Ensure the media is in allMedias (it may be a history image not yet tracked)
+              setAllMedias((prev) => {
+                if (prev.some((m) => m.signedUrl === media.signedUrl)) return prev;
+                return [...prev, media];
+              });
+              setRequestedPreviewUrl((prev) => ({ url: media.signedUrl, seq: (prev?.seq ?? 0) + 1 }));
+            }}
           />
         </div>
       </ResizablePanel>
@@ -152,7 +207,7 @@ export function ThreadWorkspace({
 
       {/* Right: Image Preview */}
       <ResizablePanel defaultSize={55} minSize={30}>
-        <ImagePreviewPanel medias={allMedias} onExportBase64={handleEditorExport} />
+        <ImagePreviewPanel medias={allMedias} onExportBase64={handleEditorExport} requestedUrl={requestedPreviewUrl} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );

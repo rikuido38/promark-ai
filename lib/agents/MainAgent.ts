@@ -1,7 +1,6 @@
 import { createDeepAgent } from "deepagents";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
-import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { getOrCreateSession } from "./sessionStore";
 import { getCheckpointer } from "./checkpointer";
@@ -15,33 +14,6 @@ import type { GenerationSettings } from "@/types/generation-settings";
 // ---------------------------------------------------------------------------
 
 const MODEL = "gpt-5.2";
-
-// ---------------------------------------------------------------------------
-// Structured output schema (mirrors AssistantOutput in types/agent.ts)
-// ---------------------------------------------------------------------------
-
-const MediaItemSchema = z.object({
-  filename: z.string(),
-  signedUrl: z.string(),
-  type: z.enum(["image", "video", "link"]),
-  storagePath: z.string().optional(),
-});
-
-const AssistantOutputSchema = z.object({
-  text: z
-    .string()
-    .describe("Final reply to the user. May contain HTML for rich formatting."),
-  medias: z
-    .array(MediaItemSchema)
-    .describe("Images, videos, or URLs to display alongside the text."),
-  confidenceScore: z
-    .number()
-    .min(0)
-    .max(1)
-    .describe(
-      "How confident the assistant is that this response fully answers the request. 0 = no confidence, 1 = fully confident.",
-    ),
-});
 
 // ---------------------------------------------------------------------------
 // Agent definition
@@ -200,15 +172,33 @@ export async function runMainAgent(
     { configurable: { thread_id: sessionId } },
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw = (result as any).structuredResponse ?? parseLastAiMessage(result.messages);
+  // Because the checkpointer persists history, result.messages contains ALL
+  // messages from every past turn. Slice to only this turn's messages by
+  // finding the last HumanMessage (the one we just sent) and taking everything
+  // from that index onwards. These are the "intermediate steps" for this turn.
+  const allMsgs: unknown[] = Array.isArray(result.messages) ? result.messages : [];
+  const lastHumanIdx = allMsgs.reduce<number>(
+    (found, m, i) => (getMsgType(m) === "human" ? i : found),
+    -1,
+  );
+  const currentTurnMsgs = lastHumanIdx >= 0 ? allMsgs.slice(lastHumanIdx) : allMsgs;
 
-  const toolMedias = extractMediasFromToolMessages(result.messages);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = (result as any).structuredResponse ?? parseLastAiMessage(currentTurnMsgs);
+
+  const toolMedias = extractMediasFromToolMessages(currentTurnMsgs);
+
+  console.log("[MainAgent] currentTurnMsgs count =", currentTurnMsgs.length);
+  console.log("[MainAgent] raw.medias =", raw?.medias);
+  console.log("[MainAgent] toolMedias =", toolMedias);
+
   const existingUrls = new Set((raw?.medias ?? []).map((m: { signedUrl: string }) => m.signedUrl));
   const mergedMedias = [
     ...(raw?.medias ?? []),
     ...toolMedias.filter((m) => !existingUrls.has(m.signedUrl)),
   ];
+
+  console.log("[MainAgent] mergedMedias =", mergedMedias);
 
   const output: AssistantOutput = {
     text: raw?.text ?? "",
@@ -223,20 +213,82 @@ export async function runMainAgent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getMsgType(m: any): string | undefined {
+  if (typeof m?._getType === "function") return m._getType();
+  if (typeof m?.getType === "function") return m.getType();
+  return m?._type;
+}
+
+/**
+ * Parse the last AI message from the result messages array into a partial
+ * AssistantOutput. Used when `result.structuredResponse` is not set.
+ */
 function parseLastAiMessage(messages: unknown[]): Partial<AssistantOutput> {
   if (!Array.isArray(messages)) return {};
-  const lastAi = [...messages].reverse().find(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (m: any) => typeof m._getType === "function" && m._getType() === "ai",
-  );
+  const lastAi = [...messages].reverse().find((m: unknown) => getMsgType(m) === "ai");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const content = (lastAi as any)?.content;
-  if (typeof content !== "string") return {};
+  const rawContent = (lastAi as any)?.content;
+  let content: string;
+  if (typeof rawContent === "string") {
+    content = rawContent;
+  } else if (Array.isArray(rawContent)) {
+    content = rawContent
+      .filter((b: unknown) => (b as { type?: string })?.type === "text")
+      .map((b: unknown) => (b as { text: string }).text)
+      .join("\n");
+  } else {
+    return {};
+  }
+  // strip markdown code fences if present
+  const stripped = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   try {
-    return JSON.parse(content) as Partial<AssistantOutput>;
+    return JSON.parse(stripped) as Partial<AssistantOutput>;
   } catch {
     return { text: content };
   }
+}
+
+type MediaItem = { filename: string; signedUrl: string; type: "image" | "video" | "url"; storagePath?: string };
+
+function parseMediaFromJson(raw: string): MediaItem | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.signedUrl === "string" && typeof parsed?.filename === "string") {
+      return {
+        filename: parsed.filename,
+        signedUrl: parsed.signedUrl,
+        type: parsed.type ?? "image",
+        ...(parsed.storagePath ? { storagePath: parsed.storagePath } : {}),
+      };
+    }
+  } catch {
+    // not JSON — skip
+  }
+  return null;
+}
+
+function extractTextFromBlock(block: unknown): string | null {
+  if (typeof block === "string") return block;
+  if (typeof (block as { text?: unknown })?.text === "string") return (block as { text: string }).text;
+  return null;
+}
+
+function extractMediasFromContent(content: unknown): MediaItem[] {
+  if (typeof content === "string") {
+    const item = parseMediaFromJson(content);
+    return item ? [item] : [];
+  }
+  if (!Array.isArray(content)) return [];
+  const results: MediaItem[] = [];
+  for (const block of content) {
+    const text = extractTextFromBlock(block);
+    if (!text) continue;
+    const item = parseMediaFromJson(text);
+    if (item) results.push(item);
+  }
+  return results;
 }
 
 /**
@@ -245,29 +297,10 @@ function parseLastAiMessage(messages: unknown[]): Partial<AssistantOutput> {
  * and must be surfaced in `medias[]` regardless of whether the LLM included
  * them in its final JSON reply.
  */
-function extractMediasFromToolMessages(
-  messages: unknown[],
-): Array<{ filename: string; signedUrl: string; type: "image" | "video" | "link"; storagePath?: string }> {
+function extractMediasFromToolMessages(messages: unknown[]): MediaItem[] {
   if (!Array.isArray(messages)) return [];
-  const medias: Array<{ filename: string; signedUrl: string; type: "image" | "video" | "link"; storagePath?: string }> = [];
-  for (const m of messages) {
+  return messages
+    .filter((m) => getMsgType(m) === "tool")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const msg = m as any;
-    if (typeof msg?._getType !== "function" || msg._getType() !== "tool") continue;
-    const raw = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "");
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed?.signedUrl === "string" && typeof parsed?.filename === "string") {
-        medias.push({
-          filename: parsed.filename,
-          signedUrl: parsed.signedUrl,
-          type: parsed.type ?? "image",
-          ...(parsed.storagePath ? { storagePath: parsed.storagePath } : {}),
-        });
-      }
-    } catch {
-      // not JSON — skip
-    }
-  }
-  return medias;
+    .flatMap((m) => extractMediasFromContent((m as any).content));
 }

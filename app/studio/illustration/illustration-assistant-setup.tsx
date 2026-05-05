@@ -21,7 +21,7 @@ export function IllustrationAssistantSetup() {
       model?: string,
       settings?: GenerationSettings,
     ): Promise<AssistantOutput> => {
-      const attachSplit = message.split("\n\nAttached images:\n");
+      const attachSplit = message.split("\n\n__IMG_REFS__\n");
       const prompt = attachSplit[0].trim();
       const sampleImageUrls = attachSplit[1]
         ? attachSplit[1].split("\n").map((u) => u.trim()).filter(Boolean)

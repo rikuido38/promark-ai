@@ -110,8 +110,8 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
   const [reloadKey, setReloadKey] = useState(0);
 
   // ── Canvas init ─────────────────────────────────────────────────────────────
-  // Use ResizeObserver so we only create the canvas once outerRef has real
-  // pixel dimensions (flex-1 layout may not be settled on first paint).
+  // Measure the container via ResizeObserver so the canvas fills 100% of the
+  // available area. The image is scaled to fit inside (letterboxed if needed).
   useEffect(() => {
     if (!canvasElRef.current || !outerRef.current) return;
     let destroyed = false;
@@ -127,7 +127,7 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
       canvas = new fabric.Canvas(canvasElRef.current, {
         width: w,
         height: h,
-        backgroundColor: "#f1f5f9",
+        backgroundColor: "transparent",
         selection: true,
       });
       fabricRef.current = canvas;
@@ -136,7 +136,6 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
       if (!destroyed) setIsReady(true);
     };
 
-    // ResizeObserver fires once with the real layout dimensions
     const ro = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (rect && rect.width > 0 && rect.height > 0) {
@@ -466,18 +465,27 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
         </Button>
       </div>
 
-      {/* Canvas area
-          outerRef is a flex centering box (items-center justify-center).
-          Fabric wraps canvasElRef in a div.canvas-container with explicit pixel
-          width/height — as a direct flex child it is automatically centered.
-      */}
-      <div ref={outerRef} className="flex-1 overflow-auto bg-slate-100 relative flex items-center justify-center">
+      {/* Canvas area — fills all available space, checkered bg for transparent images */}
+      <div
+        ref={outerRef}
+        className="flex-1 overflow-hidden relative"
+        style={{
+          backgroundColor: "#e8e8e8",
+          backgroundImage:
+            "linear-gradient(45deg,#d0d0d0 25%,transparent 25%)," +
+            "linear-gradient(-45deg,#d0d0d0 25%,transparent 25%)," +
+            "linear-gradient(45deg,transparent 75%,#d0d0d0 75%)," +
+            "linear-gradient(-45deg,transparent 75%,#d0d0d0 75%)",
+          backgroundSize: "20px 20px",
+          backgroundPosition: "0 0,0 10px,10px -10px,-10px 0px",
+        }}
+      >
         {!isReady && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
             <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
           </div>
         )}
-        <canvas ref={canvasElRef} className="touch-none shadow-md rounded-sm" />
+        <canvas ref={canvasElRef} className="touch-none" />
       </div>
     </div>
   );
@@ -507,13 +515,13 @@ async function loadBgImage(
     });
     img._isBgImage = true;
     canvas.add(img);
-    // Use Fabric's built-in centering — reliable regardless of canvas dimensions
     canvas.centerObject(img);
     canvas.renderAll();
   } catch {
-    // Image load failed — canvas shows blank background
+    // Image load failed — canvas shows transparent background
   }
 }
+
 
 // ── ToolBtn ───────────────────────────────────────────────────────────────────
 

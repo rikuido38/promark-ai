@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
 import { ThreadWorkspace } from "./thread-workspace";
-import { loadChatHistory } from "./actions";
+import { loadChatHistory, loadLastAssistantImages } from "./actions";
 
 export default async function StudioIllustrationThreadPage(props: {
   params: Promise<{ id: string }>;
@@ -16,11 +16,12 @@ export default async function StudioIllustrationThreadPage(props: {
   if (!user) redirect("/login");
 
   const db = await getDb();
-  const [thread, chatHistory] = await Promise.all([
+  const [thread, chatHistory, initialMedias] = await Promise.all([
     db
       .collection(COLLECTIONS.STUDIO_THREADS)
       .findOne({ thread_id: id }, { projection: { prompt: 1, model: 1, is_new_chat: 1 } }),
     loadChatHistory(id),
+    loadLastAssistantImages(id),
   ]);
 
   return (
@@ -35,6 +36,7 @@ export default async function StudioIllustrationThreadPage(props: {
             initialModel={(thread?.model as string | undefined) ?? undefined}
             isNewChat={(thread?.is_new_chat as boolean | undefined) ?? true}
             chatHistory={chatHistory}
+            initialMedias={initialMedias}
           />
         </div>
       </div>

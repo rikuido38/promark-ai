@@ -4,7 +4,7 @@ import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from "re
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BookmarkCheck, Bookmark, ExternalLink, ImageIcon, Loader2, Plus, Send, Sparkles, X } from "lucide-react";
+import { ArrowUpRight, BookmarkCheck, Bookmark, ExternalLink, ImageIcon, Loader2, MoreHorizontal, Plus, Send, Sparkles, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +22,8 @@ import { uploadChatAttachmentClient, type UploadAttachmentResult } from "@/app/a
 import { GenerationSettingsButton } from "@/components/generation-settings-dialog";
 import type { GenerationSettings, GenerationTabKey } from "@/types/generation-settings";
 import { DEFAULT_GENERATION_SETTINGS, tabKeyFromPageKey } from "@/types/generation-settings";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 export type Message = {
   role: "assistant" | "user";
@@ -59,6 +61,8 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
   autoSendMessage?: string;
   initialModel?: string;
   initialMessages?: Message[];
+  onUseAsCurrent?: (media: MediaItem) => void;
+  currentMediaUrl?: string;
 }>(function AssistantChatbot({
   title = "AI Assistant",
   systemMessage = "How can I help you?",
@@ -72,6 +76,8 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
   autoSendMessage,
   initialModel,
   initialMessages,
+  onUseAsCurrent,
+  currentMediaUrl,
 }, ref) {
   const figmaTool = connectedTools.find((t) => t.slug === "figma");
   const buildInitialMessages = (): Message[] => {
@@ -102,6 +108,7 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   // filename → "saving" | "saved" | "error"
   const [draftState, setDraftState] = useState<Record<string, "saving" | "saved" | "error">>({});
+  const [previewMedia, setPreviewMedia] = useState<MediaItem | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>(initialModel ?? availableModels?.[0] ?? "");
   const [attachments, setAttachments] = useState<UploadAttachmentResult[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
@@ -197,7 +204,8 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
     const userMsg: Message = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: userMessage,
+      // Show only the text portion — strip any appended attachment URL block
+      content: userMessage.split("\n\n__IMG_REFS__\n")[0].trim(),
     };
     setMessages((prev) => [...prev, userMsg]);
     setInputValue("");
@@ -207,7 +215,7 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
     // Build the full message: text + attachment signed URLs so the agent can see them
     const messageWithAttachments =
       currentAttachments.length > 0
-        ? `${userMessage}\n\nAttached images:\n${currentAttachments.map((a) => a.signedUrl).join("\n")}`
+        ? `${userMessage}\n\n__IMG_REFS__\n${currentAttachments.map((a) => a.signedUrl).join("\n")}`
         : userMessage;
 
     try {
@@ -306,40 +314,52 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
             >
               <div dangerouslySetInnerHTML={{ __html: stripScripts(msg.content) }} />
               {msg.medias && msg.medias.length > 0 && (
-                <div className="mt-2 space-y-2">
+                <div className="mt-3 flex flex-wrap gap-1.5">
                   {msg.medias.map((media) => {
                     if (media.type === "image") {
                       const state = draftState[media.filename];
-                      let btnTitle = "Save to drafts";
-                      if (state === "saved") btnTitle = "Saved to drafts";
-                      if (state === "error") btnTitle = "Save failed — try again";
-
-                      let btnClass = "bg-white/90 text-slate-700 hover:bg-white";
-                      if (state === "saved") btnClass = "bg-green-500 text-white opacity-100";
-                      if (state === "error") btnClass = "bg-red-500 text-white opacity-100";
-
                       return (
-                        <div key={media.filename} className="relative group">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={media.signedUrl}
-                            alt={media.filename}
-                            className="rounded-xl w-full object-contain max-h-72"
-                          />
-                          {media.storagePath && (
-                            <button
-                              onClick={() => handleSaveDraft(media)}
-                              disabled={!!state}
-                              title={btnTitle}
-                              className={`absolute top-2 right-2 flex items-center justify-center w-8 h-8 rounded-full shadow-md transition-all opacity-0 group-hover:opacity-100 ${btnClass}`}
-                            >
-                              {state === "saved" ? (
-                                <BookmarkCheck className="h-4 w-4" />
-                              ) : (
-                                <Bookmark className={`h-4 w-4 ${state === "saving" ? "animate-pulse" : ""}`} />
+                        <div key={media.filename} className="relative group h-20 w-20 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewMedia(media)}
+                            className={cn(
+                              "h-20 w-20 block rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                              media.signedUrl === currentMediaUrl && "ring-1 ring-red-500",
+                            )}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={media.signedUrl}
+                              alt={media.filename}
+                              crossOrigin="anonymous"
+                              className="h-20 w-20 object-cover cursor-pointer"
+                            />
+                          </button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                              <MoreHorizontal className="h-3 w-3" />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem
+                                disabled={state === "saving"}
+                                onClick={() => handleSaveDraft(media)}
+                              >
+                                {state === "saved" ? (
+                                  <BookmarkCheck className="h-4 w-4 mr-2 text-green-600" />
+                                ) : (
+                                  <Bookmark className={`h-4 w-4 mr-2 ${state === "saving" ? "animate-pulse" : ""}`} />
+                                )}
+                                {state === "saved" ? "Bookmarked" : "Bookmark"}
+                              </DropdownMenuItem>
+                              {onUseAsCurrent && (
+                                <DropdownMenuItem onClick={() => onUseAsCurrent(media)}>
+                                  <ArrowUpRight className="h-4 w-4 mr-2" />
+                                  Send to editor
+                                </DropdownMenuItem>
                               )}
-                            </button>
-                          )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       );
                     }
@@ -394,6 +414,7 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
                   <img
                     src={a.signedUrl}
                     alt={a.filename}
+                    crossOrigin="anonymous"
                     className="h-16 w-16 rounded-lg object-cover border border-slate-200"
                   />
                   <button
@@ -527,6 +548,23 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
           </div>
         </div>
       </div>
-    </div>
+
+
+    {/* Image preview lightbox */}
+    {previewMedia && (
+      <Dialog open onOpenChange={() => setPreviewMedia(null)}>
+        <DialogContent className="max-w-2xl p-2" showCloseButton>
+          <DialogTitle className="sr-only">{previewMedia.filename}</DialogTitle>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewMedia.signedUrl}
+            alt={previewMedia.filename}
+            crossOrigin="anonymous"
+            className="w-full h-auto object-contain rounded-lg max-h-[80vh]"
+          />
+        </DialogContent>
+      </Dialog>
+    )}
+  </div>
   );
 });
