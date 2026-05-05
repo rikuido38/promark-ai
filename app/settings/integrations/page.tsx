@@ -3,18 +3,12 @@ import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { getIntegrations } from "./actions";
 import { IntegrationList } from "./integration-list";
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
 import { redirect } from "next/navigation";
 
 export default async function IntegrationsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
+  const user = await getUser();
+  if (!user) redirect("/login");
 
   const integrations = await getIntegrations();
 

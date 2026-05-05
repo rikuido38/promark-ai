@@ -1,7 +1,9 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
-import { TABLES } from "@/utils/supabase/constant";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
+import { createStorageClient } from "@/utils/s3/storage";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { SUPABASE_BUCKET_NAME } from "@/utils/constants";
 
 export type StudioThreadType = "illustration" | "image" | "video";
@@ -35,26 +37,35 @@ export async function upsertStudioThread(
   prompt?: string,
   model?: string,
 ): Promise<{ error?: string }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) return { error: "Unauthorized" };
 
-  const { error } = await supabase.from(TABLES.STUDIO_THREADS).upsert(
-    { thread_id: threadId, user_id: user.id, type, prompt: prompt ?? null, model: model ?? null },
-    { onConflict: "thread_id", ignoreDuplicates: true },
+  const db = await getDb();
+  await db.collection(COLLECTIONS.STUDIO_THREADS).updateOne(
+    { thread_id: threadId },
+    {
+      $setOnInsert: {
+        thread_id: threadId,
+        user_id: user.id,
+        type,
+        prompt: prompt ?? null,
+        model: model ?? null,
+        is_new_chat: true,
+        created_at: new Date().toISOString(),
+      },
+    },
+    { upsert: true },
   );
-  if (error) return { error: error.message };
   return {};
 }
 
 // ── Mark first trigger done (call immediately after first AI response) ────────
 
 export async function markNewChatDone(threadId: string): Promise<void> {
-  const supabase = await createClient();
-  await supabase
-    .from(TABLES.STUDIO_THREADS)
-    .update({ is_new_chat: false })
-    .eq("thread_id", threadId);
+  const db = await getDb();
+  await db
+    .collection(COLLECTIONS.STUDIO_THREADS)
+    .updateOne({ thread_id: threadId }, { $set: { is_new_chat: false } });
 }
 
 // ── Save a single chat turn ───────────────────────────────────────────────────
@@ -65,64 +76,70 @@ export async function saveChatMessage(
   content: string,
   imageStoragePaths: string[] = [],
 ): Promise<void> {
-  const supabase = await createClient();
-  await supabase.from(TABLES.STUDIO_THREAD_CHATS).insert({
+  const db = await getDb();
+  await db.collection(COLLECTIONS.STUDIO_THREAD_CHATS).insertOne({
     thread_id: threadId,
     role,
     content,
     image_storage_paths: imageStoragePaths,
+    created_at: new Date().toISOString(),
   });
 }
 
 // ── Load chat history for a thread ───────────────────────────────────────────
 
 export async function loadChatHistory(threadId: string): Promise<StudioThreadChat[]> {
-  const supabase = await createClient();
+  const db = await getDb();
+  const rows = await db
+    .collection(COLLECTIONS.STUDIO_THREAD_CHATS)
+    .find({ thread_id: threadId })
+    .sort({ created_at: 1 })
+    .toArray();
 
-  const { data, error } = await supabase
-    .from(TABLES.STUDIO_THREAD_CHATS)
-    .select("id, thread_id, role, content, image_storage_paths, created_at")
-    .eq("thread_id", threadId)
-    .order("created_at", { ascending: true });
+  if (rows.length === 0) return [];
 
-  if (error || !data) return [];
-
-  // Resolve signed URLs for all stored image paths
-  const rows = data as Array<{
-    id: string;
-    thread_id: string;
-    role: "user" | "assistant";
-    content: string;
-    image_storage_paths: string[];
-    created_at: string;
-  }>;
-
-  const allPaths = rows.flatMap((r) => r.image_storage_paths);
+  const allPaths = rows.flatMap((r) => (r.image_storage_paths as string[]) ?? []);
   const signedUrlMap = new Map<string, string>();
 
   if (allPaths.length > 0) {
-    const { data: signed } = await supabase.storage
+    const storage = createStorageClient();
+    const { data: signed } = await storage.storage
       .from(SUPABASE_BUCKET_NAME)
       .createSignedUrls(allPaths, 3600);
     for (const s of signed ?? []) {
-      if (s.signedUrl) signedUrlMap.set(s.path, s.signedUrl);
+      if (s.signedUrl && s.path) signedUrlMap.set(s.path, s.signedUrl);
     }
   }
 
   return rows.map((r) => ({
-    ...r,
-    image_signed_urls: r.image_storage_paths.map((p) => signedUrlMap.get(p) ?? "").filter(Boolean),
+    id: r._id?.toString() ?? "",
+    thread_id: r.thread_id as string,
+    role: r.role as "user" | "assistant",
+    content: r.content as string,
+    image_storage_paths: (r.image_storage_paths as string[]) ?? [],
+    image_signed_urls: ((r.image_storage_paths as string[]) ?? [])
+      .map((p) => signedUrlMap.get(p) ?? "")
+      .filter(Boolean),
+    created_at: r.created_at as string,
   }));
 }
 
 // ── Fetch a single thread ─────────────────────────────────────────────────────
 
 export async function getStudioThread(threadId: string): Promise<StudioThread | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from(TABLES.STUDIO_THREADS)
-    .select("*")
-    .eq("thread_id", threadId)
-    .single();
-  return (data as StudioThread) ?? null;
+  const db = await getDb();
+  const row = await db
+    .collection(COLLECTIONS.STUDIO_THREADS)
+    .findOne({ thread_id: threadId });
+  if (!row) return null;
+  return {
+    id: row._id?.toString() ?? "",
+    thread_id: row.thread_id as string,
+    user_id: row.user_id as string,
+    type: row.type as StudioThreadType,
+    prompt: row.prompt as string | null,
+    model: row.model as string | null,
+    is_first_trigger: row.is_first_trigger as boolean,
+    created_at: row.created_at as string,
+  };
 }

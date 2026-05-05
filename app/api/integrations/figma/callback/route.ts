@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
 import { cookies } from "next/headers";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -28,20 +29,16 @@ export async function GET(request: Request) {
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) {
     return NextResponse.redirect(`${origin}/login`);
   }
 
-  const { data: integration } = await supabase
-    .from(TABLES.INTEGRATIONS)
-    .select("id")
-    .eq("slug", "figma")
-    .maybeSingle();
+  const db = await getDb();
+
+  const integration = await db
+    .collection(COLLECTIONS.INTEGRATIONS)
+    .findOne({ slug: "figma" });
 
   if (!integration) {
     return NextResponse.redirect(
@@ -49,12 +46,9 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data: orgIntegration } = await supabase
-    .from(TABLES.ORGANIZATION_INTEGRATIONS)
-    .select("credentials")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("integration_id", integration.id)
-    .maybeSingle();
+  const orgIntegration = await db
+    .collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS)
+    .findOne({ org_id: DEFAULT_ORG_ID, integration_id: integration._id });
 
   const creds = orgIntegration?.credentials as Record<string, unknown> | null;
   if (!creds?.client_id || !creds?.client_secret) {
@@ -86,21 +80,24 @@ export async function GET(request: Request) {
 
   const tokenData = (await tokenRes.json()) as Record<string, unknown>;
 
-  const { error: upsertError } = await supabase
-    .from(TABLES.USER_INTEGRATIONS)
-    .upsert(
+  try {
+    await db.collection(COLLECTIONS.USER_INTEGRATIONS).updateOne(
+      { user_id: user.id, integration_id: integration._id },
       {
-        user_id: user.id,
-        org_id: DEFAULT_ORG_ID,
-        integration_id: integration.id,
-        status: "connected",
-        credentials: tokenData,
+        $set: {
+          user_id: user.id,
+          org_id: DEFAULT_ORG_ID,
+          integration_id: integration._id,
+          status: "connected",
+          credentials: tokenData,
+          updated_at: new Date().toISOString(),
+        },
+        $setOnInsert: { created_at: new Date().toISOString() },
       },
-      { onConflict: "user_id, integration_id" },
+      { upsert: true },
     );
-
-  if (upsertError) {
-    console.error("Failed to store Figma credentials:", upsertError);
+  } catch (err) {
+    console.error("Failed to store Figma credentials:", err);
     return NextResponse.redirect(
       `${origin}/settings/integrations?error=figma_store_failed`,
     );

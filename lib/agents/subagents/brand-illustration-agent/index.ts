@@ -6,15 +6,15 @@ import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Mustache from "mustache";
-import OpenAI from "openai";
 import Fuse from "fuse.js";
 import sharp from "sharp";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_BUCKET_NAME, DEFAULT_ORG_ID } from "@/utils/constants";
+import { createStorageClient } from "@/utils/s3/storage";
 import type { BrandIllustrationContext } from "@/types/brand-context";
 import type { PaletteColor } from "@/types/settings";
 import type { GenerationSettings } from "@/types/generation-settings";
-import { SUPABASE_BUCKET_NAME, DEFAULT_ORG_ID } from "@/utils/constants";
 import { getBrandContext } from "@/services/brand-context";
+import { createImageProvider } from "@/lib/image-gen/factory";
 
 const MODEL = "gpt-5.4";
 
@@ -205,7 +205,6 @@ function buildIllustrationPrompt(
  *   → upload_illustration
  */
 export function createBrandIllustrationTool(
-  supabase: SupabaseClient,
   options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string; generationSettings?: GenerationSettings },
 ) {
   const toolDescription =
@@ -222,7 +221,7 @@ export function createBrandIllustrationTool(
       }));
 
       // Build a fresh inner agent with per-invocation closure state
-      const innerAgent = buildIllustrationAgent(supabase, options);
+      const innerAgent = buildIllustrationAgent(options);
       console.log("[BrandIllustrationTool] inner agent created, invoking pipeline...");
       const result = await innerAgent.invoke({
         messages: [new HumanMessage(user_request)],
@@ -279,7 +278,6 @@ export function createBrandIllustrationTool(
 // capturedImageBuffer). Do NOT hoist this to module scope.
 // ---------------------------------------------------------------------------
 function buildIllustrationAgent(
-  supabase: SupabaseClient,
   options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string; generationSettings?: GenerationSettings },
 ) {
   const imageModel = options?.imageModel ?? options?.generationSettings?.model ?? "gpt-image-2";
@@ -290,7 +288,7 @@ function buildIllustrationAgent(
   // Pre-loaded sample URLs from the API call (chat attachments). These are
   // merged with any sample_image_urls the LLM passes to generate_illustration.
   const preloadedSampleUrls: string[] = options?.sampleImageUrls ?? [];
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const imageProvider = createImageProvider(imageModel);
 
   // Per-invocation state shared across tool calls via closure.
   let capturedContext: BrandIllustrationContext | null = null;
@@ -301,7 +299,7 @@ function buildIllustrationAgent(
 
   const fetchBrandContextTool = tool(
     async () => {
-      capturedContext = await getBrandContext(supabase);
+      capturedContext = await getBrandContext();
       if (!capturedContext) {
         throw new Error(
           "No compiled brand context found. Please compile brand context before generating illustrations.",
@@ -471,54 +469,39 @@ function buildIllustrationAgent(
 
       const fullPrompt = buildIllustrationPrompt(ill, brand, relevantChars, scenePrompt, imageLabels);
 
-      // Image order: 1) character refs, 2) guideline images, 3) user samples
-      const inputContent: Array<Record<string, unknown>> = [
-        { type: "input_text", text: fullPrompt },
+      // Build reference image list for the provider (order: char refs → guidelines → user samples)
+      const referenceImages = [
         ...charsWithImages.map((c) => ({
-          type: "input_image",
-          image_url: `data:${c.mediaType};base64,${c.base64}`,
+          base64: c.base64,
+          mediaType: c.mediaType,
+          label: `Character reference for "${c.name}" — match appearance, colours, and proportions exactly.`,
         })),
         ...guidelineImages.map((g) => ({
-          type: "input_image",
-          image_url: `data:${g.mediaType};base64,${g.base64}`,
+          base64: g.base64,
+          mediaType: g.mediaType,
+          label: g.label,
         })),
         ...sampleImages.map((s) => ({
-          type: "input_image",
-          image_url: `data:${s.mediaType};base64,${s.base64}`,
+          base64: s.base64,
+          mediaType: s.mediaType,
+          label: "User direction sample — use for pose, scene, or composition inspiration only.",
         })),
       ];
 
-      const requestPayload = {
-        model: "gpt-5.4",
-        input: [{ role: "user", content: inputContent }],
-        tools: [{
-          type: "image_generation",
-          model: imageModel,
-          quality: genSettings?.quality ?? "high",
-          ...(genSettings?.size && genSettings.size !== "auto" ? { size: genSettings.size } : {}),
-        }],
-      };
-      console.log("[BrandIllustrationAgent] responses.create payload:", JSON.stringify(
-        requestPayload,
-        (key, value) => key === "image_url" && typeof value === "string" && value.startsWith("data:")
-          ? `${value.slice(0, 60)}…[truncated]`
-          : value,
-        2,
-      ));
+      console.log("[BrandIllustrationAgent] generate_illustration: calling provider", {
+        model: imageModel,
+        quality: genSettings?.quality ?? "high",
+        size: genSettings?.size === "auto" ? undefined : genSettings?.size,
+        referenceImageCount: referenceImages.length,
+      });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const response = await (openai as any).responses.create(requestPayload);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const imageOutput = (response.output as any[])?.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (o: any) => o.type === "image_generation_call",
-      );
-
-      const imageB64: string = imageOutput?.result ?? imageOutput?.image ?? "";
-      if (!imageB64) throw new Error("Responses API returned no image data.");
-
-      capturedImageBuffer = Buffer.from(imageB64, "base64");
+      capturedImageBuffer = await imageProvider.generate({
+        prompt: fullPrompt,
+        model: imageModel,
+        quality: genSettings?.quality ?? "high",
+        size: genSettings?.size === "auto" ? undefined : genSettings?.size,
+        referenceImages,
+      });
 
       return "Illustration generated successfully.";
     },
@@ -562,13 +545,14 @@ function buildIllustrationAgent(
       const filename = `${crypto.randomUUID()}.${ext}`;
       const storagePath = `temp/${DEFAULT_ORG_ID}/${filename}`;
 
-      const { error: uploadError } = await supabase.storage
+      const storage = createStorageClient();
+      const { error: uploadError } = await storage.storage
         .from(SUPABASE_BUCKET_NAME)
         .upload(storagePath, compressed, { contentType, upsert: false });
 
       if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
 
-      const { data: signedData, error: signedError } = await supabase.storage
+      const { data: signedData, error: signedError } = await storage.storage
         .from(SUPABASE_BUCKET_NAME)
         .createSignedUrl(storagePath, 60 * 60);
 

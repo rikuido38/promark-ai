@@ -2,19 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/utils/supabase/server";
+import { signIn, signOut } from "@/utils/cognito/auth";
 
 export async function login(formData: FormData) {
-  const supabase = await createClient();
+  const email = formData.get("email") as string;
+  const password = formData.get("password") as string;
 
-  const data = {
-    email: formData.get("email") as string,
-    password: formData.get("password") as string,
-  };
-
-  const { error } = await supabase.auth.signInWithPassword(data);
-
-  if (error) {
+  try {
+    await signIn(email, password);
+  } catch (err) {
+    console.error("[login] Cognito error:", err);
     redirect("/login?error=Wrong email or password");
   }
 
@@ -22,26 +19,14 @@ export async function login(formData: FormData) {
   redirect("/");
 }
 
-export async function signup(formData: FormData) {
-  const supabase = await createClient();
-
-  const data = {
-    email: formData.get("email") as string,
-    password: formData.get("password") as string,
-  };
-
-  const { error } = await supabase.auth.signUp(data);
-
-  if (error) {
-    redirect("/login?error=Could not sign up user");
-  }
-
-  revalidatePath("/", "layout");
-  redirect("/");
+export async function signup(_formData: FormData) {
+  // Cognito user creation is handled via AWS Console or admin SDK.
+  // Self-service sign-up can be added here if the User Pool allows it.
+  redirect("/login?error=Sign up is not available. Please contact your administrator.");
 }
 
 export async function signout() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  await signOut();
   redirect("/login");
 }
+

@@ -2,9 +2,10 @@ import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MetricCard } from "@/components/metric-card";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
 import { redirect } from "next/navigation";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import {
   Briefcase,
   ListTodo,
@@ -14,42 +15,36 @@ import {
 } from "lucide-react";
 
 export default async function Home() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  // Fetch user's specific projects
-  const { data: projectsData } = await supabase
-    .from(TABLES.PROJECTS)
-    .select(`id, ${TABLES.PROJECT_USERS}!inner(user_id)`)
-    .eq(`${TABLES.PROJECT_USERS}.user_id`, user.id);
+  const db = await getDb();
 
-  const totalProjects = projectsData?.length || 0;
-  const projectIds = projectsData?.map((p) => p.id) || [];
+  const projects = await db
+    .collection(COLLECTIONS.PROJECTS)
+    .find({}, { projection: { _id: 1 } })
+    .toArray();
+  const projectIds = projects.map((p) => p._id as string);
+
+  const totalProjects = projectIds.length;
 
   let inProgressCampaigns = 0;
   let completedCampaigns = 0;
   let totalCampaigns = 0;
 
   if (projectIds.length > 0) {
-    const { data: campaignsData } = await supabase
-      .from(TABLES.CAMPAIGNS)
-      .select("status")
-      .in("project_id", projectIds);
+    const campaignsData = await db
+      .collection(COLLECTIONS.CAMPAIGNS)
+      .find({ project_id: { $in: projectIds } }, { projection: { status: 1 } })
+      .toArray();
 
     if (campaignsData) {
       totalCampaigns = campaignsData.length;
-      inProgressCampaigns = campaignsData.filter(
-        (c) => c.status === "in_progress",
-      ).length;
-      completedCampaigns = campaignsData.filter(
-        (c) => c.status === "completed",
-      ).length;
+      inProgressCampaigns = campaignsData.filter((c) => c.status === "in_progress").length;
+      completedCampaigns = campaignsData.filter((c) => c.status === "completed").length;
     }
   }
 

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { runMainAgent } from "@/lib/agents/MainAgent";
-import { createClient } from "@/utils/supabase/server";
+import { getDb } from "@/utils/mongodb/client";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 
 export async function POST(request: Request) {
   try {
@@ -19,18 +19,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from(TABLES.ORGANIZATIONS)
-      .select("assistant_name")
-      .eq("id", DEFAULT_ORG_ID)
-      .single();
+    const db = await getDb();
+    const org = await db
+      .collection(COLLECTIONS.ORGANIZATIONS)
+      .findOne({ _id: DEFAULT_ORG_ID } as unknown as import("mongodb").Filter<import("mongodb").Document>, { projection: { assistant_name: 1 } });
 
     const { output, sessionId: resolvedSessionId } = await runMainAgent({
       userMessage: message.trim(),
       sessionId,
-      assistantName: org?.assistant_name ?? null,
-      supabase,
+      assistantName: (org?.assistant_name as string | null) ?? null,
     });
 
     return NextResponse.json({ output, sessionId: resolvedSessionId });

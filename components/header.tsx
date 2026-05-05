@@ -12,17 +12,13 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
 
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
 import { signout } from "@/app/login/actions";
 
 export async function Header() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const userEmail = user?.email || "Unknown User";
-  const userDisplayName =
-    user?.user_metadata?.display_name || userEmail.split("@")[0];
+  const user = await getUser();
+  const userEmail = user?.email ?? "Unknown User";
+  const userDisplayName = user?.name ?? userEmail.split("@")[0];
   const initials = userDisplayName.substring(0, 2).toUpperCase();
 
   return (

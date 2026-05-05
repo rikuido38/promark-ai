@@ -1,8 +1,10 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
+import { createStorageClient } from "@/utils/s3/storage";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 
 const PAGE_SIZE = 10;
 
@@ -31,39 +33,36 @@ export async function fetchDrafts(
   mediaType: DraftMediaType,
   cursor?: string,
 ): Promise<FetchDraftsResult> {
-  const supabase = await createClient();
-  const { data: userData, error: authError } = await supabase.auth.getUser();
-  if (authError || !userData.user) throw new Error("Unauthorized");
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
-  let query = supabase
-    .from(TABLES.USER_DRAFTS)
-    .select("id, filename, storage_path, media_type, created_at")
-    .eq("media_type", mediaType)
-    .order("created_at", { ascending: false })
-    .limit(PAGE_SIZE);
-
+  const db = await getDb();
+  const filter: Record<string, unknown> = { media_type: mediaType };
   if (cursor) {
-    query = query.lt("created_at", cursor);
+    filter.created_at = { $lt: cursor };
   }
 
-  const { data: rows, error } = await query;
-  if (error) throw new Error(`Failed to fetch drafts: ${error.message}`);
-  if (!rows || rows.length === 0) return { items: [], nextCursor: null };
+  const rows = await db
+    .collection(COLLECTIONS.USER_DRAFTS)
+    .find(filter)
+    .sort({ created_at: -1 })
+    .limit(PAGE_SIZE)
+    .toArray();
 
-  // Batch-create signed URLs (24h expiry) for all fetched rows.
+  if (rows.length === 0) return { items: [], nextCursor: null };
+
   const paths = rows.map((r) => r.storage_path as string);
-  const { data: signedList, error: signedError } = await supabase.storage
+  const storage = createStorageClient();
+  const { data: signedList, error: signedError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .createSignedUrls(paths, 60 * 60 * 24);
 
   if (signedError) throw new Error(`Failed to sign URLs: ${signedError.message}`);
 
-  const urlMap = new Map(
-    (signedList ?? []).map((s) => [s.path, s.signedUrl ?? ""]),
-  );
+  const urlMap = new Map((signedList ?? []).map((s) => [s.path, s.signedUrl ?? ""]));
 
   const items: DraftItem[] = rows.map((r) => ({
-    id: r.id as string,
+    id: r._id?.toString() ?? "",
     filename: r.filename as string,
     storagePath: r.storage_path as string,
     mediaType: r.media_type as DraftMediaType,
@@ -81,19 +80,16 @@ export async function saveDraft(
   filename: string,
   mediaType: DraftMediaType = "image",
 ): Promise<{ draftId: string; signedUrl: string }> {
-  const supabase = await createClient();
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
-  const { data: userData, error: authError } = await supabase.auth.getUser();
-  if (authError || !userData.user) throw new Error("Unauthorized");
-
-  const userId = userData.user.id;
+  const userId = user.id;
   const ext = filename.split(".").pop() ?? "png";
   const newFilename = `${crypto.randomUUID()}.${ext}`;
   const destPath = `${DEFAULT_ORG_ID}/${userId}/drafts/${newFilename}`;
+  const storage = createStorageClient();
 
-  // Copy file within the same bucket (download + re-upload avoids needing
-  // the storage copy API which requires service-role in some configurations).
-  const { data: fileData, error: downloadError } = await supabase.storage
+  const { data: fileData, error: downloadError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .download(storagePath);
 
@@ -106,67 +102,55 @@ export async function saveDraft(
   if (mediaType === "video") contentType = "video/mp4";
   else if (ext === "svg") contentType = "image/svg+xml";
 
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .upload(destPath, fileBuffer, { contentType, upsert: false });
 
   if (uploadError) throw new Error(`Failed to save draft: ${uploadError.message}`);
 
-  const { data: signedData, error: signedError } = await supabase.storage
+  const { data: signedData, error: signedError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
-    .createSignedUrl(destPath, 60 * 60 * 24 * 7); // 7-day URL for drafts
+    .createSignedUrl(destPath, 60 * 60 * 24 * 7);
 
   if (signedError || !signedData?.signedUrl) {
     throw new Error(`Failed to create signed URL: ${signedError?.message}`);
   }
 
-  const { data: draft, error: insertError } = await supabase
-    .from(TABLES.USER_DRAFTS)
-    .insert({
-      org_id: DEFAULT_ORG_ID,
-      user_id: userId,
-      filename: newFilename,
-      storage_path: destPath,
-      source_path: storagePath,
-      media_type: mediaType,
-    })
-    .select("id")
-    .single();
+  const db = await getDb();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const draftsCol = db.collection(COLLECTIONS.USER_DRAFTS) as any;
+  const draftId = crypto.randomUUID();
+  const result = await draftsCol.insertOne({
+    _id: draftId,
+    org_id: DEFAULT_ORG_ID,
+    user_id: userId,
+    filename: newFilename,
+    storage_path: destPath,
+    source_path: storagePath,
+    media_type: mediaType,
+    created_at: new Date().toISOString(),
+  } );
 
-  if (insertError || !draft) {
-    throw new Error(`Failed to record draft: ${insertError?.message}`);
+  if (!result.acknowledged) {
+    throw new Error("Failed to record draft");
   }
 
-  return { draftId: draft.id as string, signedUrl: signedData.signedUrl };
+  return { draftId, signedUrl: signedData.signedUrl };
 }
 
 export async function deleteDraft(draftId: string): Promise<void> {
-  const supabase = await createClient();
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
-  const { data: userData, error: authError } = await supabase.auth.getUser();
-  if (authError || !userData.user) throw new Error("Unauthorized");
+  const db = await getDb();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const col = db.collection(COLLECTIONS.USER_DRAFTS) as any;
+  const row = await col.findOne({ _id: draftId, user_id: user.id });
 
-  // Fetch the row first to get the storage path (and verify ownership).
-  const { data: draft, error: fetchError } = await supabase
-    .from(TABLES.USER_DRAFTS)
-    .select("storage_path")
-    .eq("id", draftId)
-    .eq("user_id", userData.user.id)
-    .single();
+  if (!row) throw new Error("Draft not found or access denied");
 
-  if (fetchError || !draft) throw new Error("Draft not found or access denied");
+  const storage = createStorageClient();
+  await storage.storage.from(SUPABASE_BUCKET_NAME).remove([row.storage_path as string]);
 
-  // Delete from storage.
-  await supabase.storage
-    .from(SUPABASE_BUCKET_NAME)
-    .remove([draft.storage_path as string]);
-
-  // Delete the DB record.
-  const { error: deleteError } = await supabase
-    .from(TABLES.USER_DRAFTS)
-    .delete()
-    .eq("id", draftId)
-    .eq("user_id", userData.user.id);
-
-  if (deleteError) throw new Error(`Failed to delete draft: ${deleteError.message}`);
+  await col.deleteOne({ _id: draftId, user_id: user.id });
 }

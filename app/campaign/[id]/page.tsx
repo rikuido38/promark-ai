@@ -1,37 +1,45 @@
-import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { CampaignSidebar } from "@/components/campaign-sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import CampaignWorkspace from "./campaign-workspace";
 import { getOrganization } from "@/app/brand/actions";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
 
 export default async function CampaignPage(props: {
   params: Promise<{ id: string }>;
 }) {
   const params = await props.params;
   const campaignId = params.id;
-  const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) {
     return redirect("/login");
   }
 
-  // Fetch campaign details
-  const { data: campaign, error: campaignError } = await supabase
-    .from(TABLES.CAMPAIGNS)
-    .select("*, projects(name)")
-    .eq("id", campaignId)
-    .single();
+  const db = await getDb();
 
-  if (campaignError || !campaign) {
+  // Fetch campaign details
+  const campaignDoc = await db
+    .collection(COLLECTIONS.CAMPAIGNS)
+    .findOne({ _id: campaignId as any });
+
+  if (!campaignDoc) {
     return <div>Campaign not found</div>;
   }
+
+  // Fetch related project name
+  const projectDoc = await db
+    .collection(COLLECTIONS.PROJECTS)
+    .findOne({ _id: campaignDoc.project_id as any }, { projection: { name: 1 } });
+
+  const campaign = {
+    ...campaignDoc,
+    id: campaignDoc._id as string,
+    projects: projectDoc ? { name: projectDoc.name } : null,
+  };
 
   const org = await getOrganization();
 

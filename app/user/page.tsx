@@ -8,23 +8,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
 import { redirect } from "next/navigation";
 
 export default async function UserProfilePage(props: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const searchParams = await props.searchParams;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const displayName = user.user_metadata?.display_name || "";
+  const user = await getUser();
+  if (!user) redirect("/login");
+  const displayName = user.name || "";
 
   return (
     <div className="flex-1 p-8">

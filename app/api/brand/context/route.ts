@@ -1,13 +1,14 @@
 import { config as dotenvConfig } from "dotenv";
 // Override any env vars already in process.env so .env.local values always win
-// (prevents the SDK from picking up a stale system-level OPENAI_API_KEY).
 dotenvConfig({ path: ".env.local", override: true });
 
 import { NextResponse } from "next/server";
 import { setDefaultOpenAIKey } from "@openai/agents";
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
+import { createStorageClient } from "@/utils/s3/storage";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { batchResolveSignedUrls } from "@/lib/storage";
 import {
   buildContextDocument,
@@ -24,29 +25,22 @@ setDefaultOpenAIKey(process.env.OPENAI_API_KEY ?? "");
 
 // ── GET /api/brand/context ────────────────────────────────────────────────────
 
-/**
- * Returns { status, is_stale, context } for the stored brand illustration
- * context. Clients poll this endpoint while generation is in progress.
- */
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData?.user) {
+    const user = await getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: row } = await supabase
-      .from(TABLES.ORG_CACHE_CONTEXT)
-      .select("status, is_stale")
-      .eq("org_id", DEFAULT_ORG_ID)
-      .eq("key", "brand_illustration")
-      .maybeSingle();
+    const db = await getDb();
+    const row = await db
+      .collection(COLLECTIONS.ORG_CACHE_CONTEXT)
+      .findOne({ org_id: DEFAULT_ORG_ID, key: "brand_illustration" });
 
     const status = (row?.status ?? "not_found") as string;
     const is_stale = row ? (row.is_stale as boolean) : true;
 
-    const context = await getBrandContext(supabase);
+    const context = await getBrandContext();
     return NextResponse.json({ status, is_stale, context: context ?? null });
   } catch (error) {
     console.error("[GET /api/brand/context]", error);
@@ -59,24 +53,19 @@ export async function GET() {
 
 // ── POST /api/brand/context ───────────────────────────────────────────────────
 
-/**
- * (Re)compiles the brand illustration context via BrandContextCompilerAgent.
- * Marks status as in_progress immediately, then persists the result on success
- * or marks error on failure.
- */
 export async function POST() {
-  const supabase = await createClient();
   try {
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData?.user) {
+    const user = await getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await setContextStatus(supabase, "in_progress");
+    await setContextStatus("in_progress");
 
-    const { brand, illustration } = await fetchRawBrandSettings(supabase);
+    const { brand, illustration } = await fetchRawBrandSettings();
+    const storage = createStorageClient();
     const signedUrls = await batchResolveSignedUrls(
-      supabase,
+      storage,
       collectImagePaths(illustration),
       SUPABASE_BUCKET_NAME,
     );
@@ -92,19 +81,20 @@ export async function POST() {
       illustration,
       analyses,
     );
-    await saveBrandContext(supabase, contextDoc);
+    await saveBrandContext(contextDoc);
 
-    const resolved = await getBrandContext(supabase);
+    const resolved = await getBrandContext();
     return NextResponse.json({ success: true, context: resolved });
   } catch (error) {
     console.error("[POST /api/brand/context]", error);
-    await setContextStatus(supabase, "error").catch(() => {});
+    await setContextStatus("error").catch(() => {});
     return NextResponse.json(
       { error: "Internal Server Error" },
       { status: 500 },
     );
   }
 }
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

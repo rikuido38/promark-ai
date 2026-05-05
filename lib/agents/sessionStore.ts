@@ -1,21 +1,13 @@
-import { MemorySaver } from "@langchain/langgraph";
+// ---------------------------------------------------------------------------
+// Session Store
+//
+// Lightweight process-level registry of active session IDs.
+// Conversation history is persisted by the PostgresSaver checkpointer in
+// lib/agents/checkpointer.ts — LangGraph manages the actual message state.
+// This module only tracks which session IDs are known to this process
+// (used for observability and explicit-deletion semantics).
+// ---------------------------------------------------------------------------
 
-/**
- * Shared MemorySaver instance used as the LangGraph checkpointer.
- *
- * A single instance is shared across all agent runs so that conversation
- * history is retained per thread_id across multiple turns. Replace with a
- * persistent checkpointer (e.g. PostgresSaver, RedisSaver) when needed
- * without changing any call sites — just swap this export.
- */
-export const memorySaver = new MemorySaver();
-
-/**
- * Process-level set of known session IDs.
- *
- * LangGraph manages actual message history via the checkpointer; this set is
- * kept only for counting and explicit-deletion semantics.
- */
 const sessionIds = new Set<string>();
 
 /**
@@ -32,7 +24,7 @@ export function deleteSession(sessionId: string): void {
   sessionIds.delete(sessionId);
 }
 
-/** Total number of active in-memory sessions (useful for observability). */
+/** Total number of active sessions tracked in this process. */
 export function activeSessionCount(): number {
   return sessionIds.size;
 }

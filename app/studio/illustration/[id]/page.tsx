@@ -1,9 +1,10 @@
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { redirect } from "next/navigation";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
 import { ThreadWorkspace } from "./thread-workspace";
-import { TABLES } from "@/utils/supabase/constant";
 import { loadChatHistory } from "./actions";
 
 export default async function StudioIllustrationThreadPage(props: {
@@ -11,19 +12,14 @@ export default async function StudioIllustrationThreadPage(props: {
 }) {
   const { id } = await props.params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) redirect("/login");
 
-  const [{ data: thread }, chatHistory] = await Promise.all([
-    supabase
-      .from(TABLES.STUDIO_THREADS)
-      .select("prompt, model, is_new_chat")
-      .eq("thread_id", id)
-      .single(),
+  const db = await getDb();
+  const [thread, chatHistory] = await Promise.all([
+    db
+      .collection(COLLECTIONS.STUDIO_THREADS)
+      .findOne({ thread_id: id }, { projection: { prompt: 1, model: 1, is_new_chat: 1 } }),
     loadChatHistory(id),
   ]);
 
@@ -35,9 +31,9 @@ export default async function StudioIllustrationThreadPage(props: {
         <div className="flex-1 overflow-hidden border-t">
           <ThreadWorkspace
             threadId={id}
-            initialPrompt={thread?.prompt ?? undefined}
-            initialModel={thread?.model ?? undefined}
-            isNewChat={thread?.is_new_chat ?? true}
+            initialPrompt={(thread?.prompt as string | undefined) ?? undefined}
+            initialModel={(thread?.model as string | undefined) ?? undefined}
+            isNewChat={(thread?.is_new_chat as boolean | undefined) ?? true}
             chatHistory={chatHistory}
           />
         </div>

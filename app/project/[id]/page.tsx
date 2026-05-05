@@ -1,48 +1,42 @@
-import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import CampaignList from "./campaign-list";
 import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
 
 export default async function ProjectPage(props: {
   params: Promise<{ id: string }>;
 }) {
   const params = await props.params;
   const projectId = params.id;
-  const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) {
     return redirect("/login");
   }
 
-  // Fetch project details
-  const { data: project, error: projectError } = await supabase
-    .from(TABLES.PROJECTS)
-    .select("*")
-    .eq("id", projectId)
-    .single();
+  const db = await getDb();
 
-  if (projectError || !project) {
+  // Fetch project details
+  const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ _id: projectId as any });
+
+  if (!project) {
     return <div>Project not found</div>;
   }
 
   // Fetch campaigns for this project
-  const { data: campaigns, error: campaignsError } = await supabase
-    .from(TABLES.CAMPAIGNS)
-    .select("*")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: false });
+  const campaigns = await db
+    .collection(COLLECTIONS.CAMPAIGNS)
+    .find({ project_id: projectId })
+    .sort({ created_at: -1 })
+    .toArray();
 
   // Cast the campaigns array to explicitly type the status property.
-  // The enum strings returned from supabase will be narrow typed in CampaignList.
   const typedCampaigns = (campaigns || []).map((c: any) => ({
-    id: c.id,
+    id: c._id as string,
     name: c.name,
     project_id: c.project_id,
     start_date: c.start_date,

@@ -1,15 +1,18 @@
 import { SidebarClient } from "./sidebar-client";
-import { createClient } from "@/utils/supabase/server";
-import { TABLES } from "@/utils/supabase/constant";
+import { getDb } from "@/utils/mongodb/client";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import type { Project } from "@/types/models";
 
 export async function Sidebar() {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from(TABLES.PROJECTS)
-    .select("id, name, created_at, updated_at")
-    .order("updated_at", { ascending: false })
-    .limit(5);
+  const db = await getDb();
+  const data = await db
+    .collection(COLLECTIONS.PROJECTS)
+    .find({}, { projection: { _id: 1, name: 1, created_at: 1, updated_at: 1 } })
+    .sort({ updated_at: -1 })
+    .limit(5)
+    .toArray();
 
-  return <SidebarClient recentProjects={(data ?? []) as Project[]} />;
+  const projects = data.map((d) => ({ ...d, id: d._id?.toString() ?? "" })) as unknown as Project[];
+
+  return <SidebarClient recentProjects={projects} />;
 }

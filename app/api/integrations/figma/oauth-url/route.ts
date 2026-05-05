@@ -1,26 +1,22 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
 
 export async function GET(request: Request) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: integration } = await supabase
-    .from(TABLES.INTEGRATIONS)
-    .select("id")
-    .eq("slug", "figma")
-    .maybeSingle();
+  const db = await getDb();
+
+  const integration = await db
+    .collection(COLLECTIONS.INTEGRATIONS)
+    .findOne({ slug: "figma" });
 
   if (!integration) {
     return NextResponse.json(
@@ -29,13 +25,13 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data: orgIntegration } = await supabase
-    .from(TABLES.ORGANIZATION_INTEGRATIONS)
-    .select("credentials")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("integration_id", integration.id)
-    .eq("status", "enabled")
-    .maybeSingle();
+  const orgIntegration = await db
+    .collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS)
+    .findOne({
+      org_id: DEFAULT_ORG_ID,
+      integration_id: integration._id,
+      status: "enabled",
+    });
 
   const creds = orgIntegration?.credentials as Record<string, unknown> | null;
   if (!creds?.client_id) {

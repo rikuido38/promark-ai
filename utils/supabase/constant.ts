@@ -16,3 +16,6 @@ export const TABLES = {
   STUDIO_THREADS: "studio_threads",
   STUDIO_THREAD_CHATS: "studio_thread_chats",
 } as const;
+
+/** MongoDB collection names — mirrors TABLES for the MongoDB layer. */
+export const COLLECTIONS = TABLES;

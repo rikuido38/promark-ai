@@ -1,45 +1,53 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { revalidatePath } from "next/cache";
 import type { OrgIntegrationCredentials, ConnectedTool } from "@/types/models";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
 
 
 export async function getIntegrations() {
-  const supabase = await createClient();
+  const db = await getDb();
 
-  // Admin check could go here if needed, but for now we follow the user's lead
+  const integrations = await db
+    .collection(COLLECTIONS.INTEGRATIONS)
+    .find()
+    .sort({ name: 1 })
+    .toArray();
 
-  const { data: integrations, error: integrationsError } = await supabase
-    .from(TABLES.INTEGRATIONS)
-    .select(
-      `
-      *,
-      integration_tags(tags(name))
-    `,
-    )
-    .order("name", { ascending: true });
+  const orgIntegrations = await db
+    .collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS)
+    .find({ org_id: DEFAULT_ORG_ID })
+    .toArray();
 
-  const { data: orgIntegrations, error: orgError } = await supabase
-    .from(TABLES.ORGANIZATION_INTEGRATIONS)
-    .select("*")
-    .eq("org_id", DEFAULT_ORG_ID);
+  // Fetch tags for each integration via integration_tags
+  const integrationIds = integrations.map((i) => i._id);
+  const integrationTags = await db
+    .collection(COLLECTIONS.INTEGRATION_TAGS)
+    .find({ integration_id: { $in: integrationIds } })
+    .toArray();
 
+  const tagIds = integrationTags.map((it) => it.tag_id);
+  const tags = await db
+    .collection(COLLECTIONS.TAGS)
+    .find({ _id: { $in: tagIds } })
+    .toArray();
+  const tagMap = new Map(tags.map((t) => [t._id as string, t.name as string]));
 
-  if (integrationsError)
-    console.error("Error fetching integrations", integrationsError);
-  if (orgError) console.error("Error fetching org integrations", orgError);
-
-  const mappedIntegrations = (integrations || []).map((integration: any) => {
-    const orgConnection = orgIntegrations?.find(
-      (oi) => oi.integration_id === integration.id,
+  const mappedIntegrations = integrations.map((integration: any) => {
+    const orgConnection = orgIntegrations.find(
+      (oi) => oi.integration_id === (integration._id as string),
     );
+    const tagNames = integrationTags
+      .filter((it) => it.integration_id === (integration._id as string))
+      .map((it) => tagMap.get(it.tag_id) ?? "");
 
     return {
       ...integration,
-      tags: integration.integration_tags.map((it: any) => it.tags.name),
+      id: integration._id,
+      tags: tagNames,
       orgStatus: orgConnection?.status || "disabled",
       orgCredentials: orgConnection?.credentials || null,
     };
@@ -52,40 +60,29 @@ export async function toggleUserIntegration(
   integrationId: string,
   connect: boolean,
 ) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) throw new Error("Unauthorized");
 
+  const db = await getDb();
+
   if (connect) {
-    const { error } = await supabase.from(TABLES.USER_INTEGRATIONS).upsert(
+    await db.collection(COLLECTIONS.USER_INTEGRATIONS).updateOne(
+      { user_id: user.id, integration_id: integrationId },
       {
-        user_id: user.id,
-        org_id: DEFAULT_ORG_ID,
-        integration_id: integrationId,
-        status: "connected",
-        credentials: {}, // This would normally happen via OAuth/Figma logic
+        $set: {
+          user_id: user.id,
+          org_id: DEFAULT_ORG_ID,
+          integration_id: integrationId,
+          status: "connected",
+          credentials: {},
+        },
       },
-      { onConflict: "user_id, integration_id" },
+      { upsert: true },
     );
-
-    if (error) {
-      console.error(error);
-      throw new Error("Failed to connect integration");
-    }
   } else {
-    const { error } = await supabase
-      .from(TABLES.USER_INTEGRATIONS)
-      .delete()
-      .eq("user_id", user.id)
-      .eq("integration_id", integrationId);
-
-    if (error) {
-      console.error(error);
-      throw new Error("Failed to disconnect integration");
-    }
+    await db
+      .collection(COLLECTIONS.USER_INTEGRATIONS)
+      .deleteOne({ user_id: user.id, integration_id: integrationId });
   }
 
   revalidatePath("/settings/integrations");
@@ -96,35 +93,27 @@ export async function toggleOrgIntegration(
   integrationId: string,
   enabled: boolean,
 ) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) throw new Error("Unauthorized");
 
+  const db = await getDb();
+
   if (enabled) {
-    const { error } = await supabase
-      .from(TABLES.ORGANIZATION_INTEGRATIONS)
-      .upsert(
-        {
+    await db.collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS).updateOne(
+      { org_id: DEFAULT_ORG_ID, integration_id: integrationId },
+      {
+        $set: {
           org_id: DEFAULT_ORG_ID,
           integration_id: integrationId,
           status: "enabled",
         },
-        { onConflict: "org_id, integration_id" },
-      );
-
-    if (error) throw new Error("Failed to enable integration for organization");
+      },
+      { upsert: true },
+    );
   } else {
-    const { error } = await supabase
-      .from(TABLES.ORGANIZATION_INTEGRATIONS)
-      .delete()
-      .eq("org_id", DEFAULT_ORG_ID)
-      .eq("integration_id", integrationId);
-
-    if (error)
-      throw new Error("Failed to disable integration for organization");
+    await db
+      .collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS)
+      .deleteOne({ org_id: DEFAULT_ORG_ID, integration_id: integrationId });
   }
 
   revalidatePath("/settings/integrations");
@@ -135,121 +124,87 @@ export async function updateOrgIntegrationCredentials(
   integrationId: string,
   credentials: OrgIntegrationCredentials,
 ) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data: existingOrgIntegration, error: existingError } = await supabase
-    .from(TABLES.ORGANIZATION_INTEGRATIONS)
-    .select("id, status")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("integration_id", integrationId)
-    .maybeSingle();
+  const db = await getDb();
 
-  if (existingError) {
-    throw new Error("Failed to load organization integration");
-  }
-
-  if (existingOrgIntegration) {
-    const { error: updateError } = await supabase
-      .from(TABLES.ORGANIZATION_INTEGRATIONS)
-      .update({ credentials })
-      .eq("id", existingOrgIntegration.id);
-
-    if (updateError) {
-      throw new Error("Failed to update credentials");
-    }
-  } else {
-    const { error: insertError } = await supabase
-      .from(TABLES.ORGANIZATION_INTEGRATIONS)
-      .insert({
+  await db.collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS).updateOne(
+    { org_id: DEFAULT_ORG_ID, integration_id: integrationId },
+    {
+      $set: { credentials },
+      $setOnInsert: {
         org_id: DEFAULT_ORG_ID,
         integration_id: integrationId,
         status: "enabled",
-        credentials,
-      });
-
-    if (insertError) {
-      throw new Error("Failed to save credentials");
-    }
-  }
+      },
+    },
+    { upsert: true },
+  );
 
   revalidatePath("/settings/integrations");
   return { success: true };
 }
 
-interface OrgIntegrationJoinRow {
-  integration_id: string;
-  integrations: {
-    id: string;
-    name: string;
-    slug: string;
-    logo_url: string | null;
-  } | null;
-}
-
 export async function getConnectedUserTools(): Promise<ConnectedTool[]> {
-  const supabase = await createClient();
+  const user = await getUser();
+  const db = await getDb();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: orgRows } = await supabase
-    .from(TABLES.ORGANIZATION_INTEGRATIONS)
-    .select("integration_id, integrations(id, name, slug, logo_url)")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("status", "enabled");
+  const orgRows = await db
+    .collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS)
+    .find({ org_id: DEFAULT_ORG_ID, status: "enabled" })
+    .toArray();
 
   if (!orgRows || orgRows.length === 0) return [];
 
+  const integrationIds = orgRows.map((r) => r.integration_id);
+  const integrationDocs = await db
+    .collection(COLLECTIONS.INTEGRATIONS)
+    .find({ _id: { $in: integrationIds } })
+    .toArray();
+  const integrationMap = new Map(
+    integrationDocs.map((i) => [i._id as string, i]),
+  );
+
   const userConnectedIds = new Set<string>();
   if (user) {
-    const { data: userRows } = await supabase
-      .from(TABLES.USER_INTEGRATIONS)
-      .select("integration_id")
-      .eq("user_id", user.id)
-      .eq("status", "connected");
-    userRows?.forEach((r) => userConnectedIds.add(r.integration_id));
+    const userRows = await db
+      .collection(COLLECTIONS.USER_INTEGRATIONS)
+      .find({ user_id: user.id, status: "connected" })
+      .toArray();
+    userRows.forEach((r) => userConnectedIds.add(r.integration_id));
   }
 
-  return (orgRows as unknown as OrgIntegrationJoinRow[])
+  return orgRows
     .map((row) => {
-      const integration = row.integrations;
+      const integration = integrationMap.get(row.integration_id);
       if (!integration) return null;
       return {
-        ...integration,
+        id: integration._id as string,
+        name: integration.name as string,
+        slug: integration.slug as string,
+        logo_url: (integration.logo_url as string | null) ?? null,
         userConnected: userConnectedIds.has(row.integration_id),
       };
     })
     .filter((t): t is ConnectedTool => t !== null);
 }
 
+
 export async function getOrgIntegrationCredentials(
   integrationId: string,
 ): Promise<OrgIntegrationCredentials | null> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { data, error } = await supabase
-    .from(TABLES.ORGANIZATION_INTEGRATIONS)
-    .select("credentials")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("integration_id", integrationId)
-    .maybeSingle();
+  const db = await getDb();
 
-  if (error) {
-    throw new Error("Failed to fetch integration credentials");
-  }
+  const doc = await db
+    .collection(COLLECTIONS.ORGANIZATION_INTEGRATIONS)
+    .findOne(
+      { org_id: DEFAULT_ORG_ID, integration_id: integrationId },
+      { projection: { credentials: 1 } },
+    );
 
-  return (data?.credentials as OrgIntegrationCredentials | null) ?? null;
+  return (doc?.credentials as OrgIntegrationCredentials | null) ?? null;
 }

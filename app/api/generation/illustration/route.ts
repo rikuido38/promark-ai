@@ -2,9 +2,10 @@ import { config as dotenvConfig } from "dotenv";
 dotenvConfig({ path: ".env.local", override: true });
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { runMainAgent } from "@/lib/agents/MainAgent";
 import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS } from "@/types/agent";
 import type { AssistantOutput } from "@/types/agent";
@@ -12,25 +13,13 @@ import type { GenerationSettings } from "@/types/generation-settings";
 
 const ALLOWED_IMAGE_MODELS = new Set(IMAGE_MODELS.map((m) => m.id));
 
-// ── POST /api/generation/illustration ────────────────────────────────────────
-/**
- * Body: { prompt: string, model?: string, sampleImageUrls?: string[] }
- *
- * Delegates to the main agent with intent="direct" and target="generate_illustration".
- * The agent fetches brand context internally and errors if none is found.
- * sampleImageUrls are passed as structured direction/reference lines in the user message.
- *
- * Returns: { output: AssistantOutput, sessionId: string }
- */
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData?.user) {
+    const user = await getUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // ── 1. Parse + validate request body ─────────────────────────────────────
     const body = await req.json().catch(() => null);
     if (!body || typeof body.prompt !== "string" || !body.prompt.trim()) {
       return NextResponse.json(
@@ -45,33 +34,27 @@ export async function POST(req: NextRequest) {
         ? body.model
         : DEFAULT_IMAGE_MODEL;
 
-    // sampleImageUrls: optional signed URLs of user-attached reference images.
     const sampleImageUrls: string[] = Array.isArray(body.sampleImageUrls)
       ? (body.sampleImageUrls as unknown[]).filter(
           (u): u is string => typeof u === "string" && u.startsWith("https://"),
         )
       : [];
 
-    // generationSettings: optional settings from the chatbot settings dialog.
     const generationSettings: GenerationSettings | undefined =
       body.settings && typeof body.settings === "object" ? (body.settings as GenerationSettings) : undefined;
 
-    // ── 2. Delegate to main agent ────────────────────────────────────────────────────
-    const { data: org } = await supabase
-      .from(TABLES.ORGANIZATIONS)
-      .select("assistant_name")
-      .eq("id", DEFAULT_ORG_ID)
-      .single();
+    const db = await getDb();
+    const org = await db
+      .collection(COLLECTIONS.ORGANIZATIONS)
+      .findOne({ _id: DEFAULT_ORG_ID } as unknown as import("mongodb").Filter<import("mongodb").Document>, { projection: { assistant_name: 1 } });
 
     const { output, sessionId } = await runMainAgent({
       userMessage: userPrompt,
-      supabase,
-      assistantName: org?.assistant_name ?? null,
+      assistantName: (org?.assistant_name as string | null) ?? null,
       imageModel,
       sampleImageUrls,
       generationSettings,
-      intent: "direct",
-      target: "generate_illustration",
+      forceTool: "generate_illustration",
     });
 
     return NextResponse.json({ output, sessionId });

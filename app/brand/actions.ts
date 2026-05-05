@@ -1,31 +1,32 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
+import { getDb } from "@/utils/mongodb/client";
+import { createStorageClient } from "@/utils/s3/storage";
 import { BrandVisualSettings, IllustrationSettings } from "@/types/settings";
 import { Media, Organization } from "@/types/models";
 import { revalidatePath } from "next/cache";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { resolveMediaInValue, normaliseBucketPath } from "@/lib/storage";
 
 export async function getOrganization(): Promise<Organization | null> {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) return null;
+  const user = await getUser();
+  if (!user) return null;
 
-  const { data, error } = await supabase
-    .from(TABLES.ORGANIZATIONS)
-    .select("*")
-    .eq("id", DEFAULT_ORG_ID)
-    .single();
+  const db = await getDb();
+  const data = await db
+    .collection(COLLECTIONS.ORGANIZATIONS)
+    .findOne({ _id: DEFAULT_ORG_ID } as unknown as import("mongodb").Filter<import("mongodb").Document>);
 
-  if (error || !data) return null;
+  if (!data) return null;
 
-  const org = data as Organization;
+  const org = { ...data, id: data._id?.toString() ?? "" } as unknown as Organization;
 
   if (org.avatar_url && !org.avatar_url.startsWith("http")) {
+    const storage = createStorageClient();
     const { data: signedUrlData, error: signedUrlError } =
-      await supabase.storage
+      await storage.storage
         .from(SUPABASE_BUCKET_NAME)
         .createSignedUrl(org.avatar_url, 60 * 60);
 
@@ -38,32 +39,24 @@ export async function getOrganization(): Promise<Organization | null> {
 }
 
 export async function getBrandVisualSettings(): Promise<BrandVisualSettings | null> {
-  const supabase = await createClient();
+  const user = await getUser();
+  if (!user) return null;
 
-  // Validate user has access
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) return null;
+  const db = await getDb();
+  const row = await db
+    .collection(COLLECTIONS.ORGANIZATION_SETTINGS)
+    .findOne({ org_id: DEFAULT_ORG_ID, key: "brand_master" });
 
-  const { data, error } = await supabase
-    .from(TABLES.ORGANIZATION_SETTINGS)
-    .select("value")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_master")
-    .maybeSingle();
+  if (!row) return null;
 
-  if (error || !data) {
-    return null;
-  }
+  const settings = row.value as BrandVisualSettings;
 
-  const settings = data.value as BrandVisualSettings;
-
-  // If there's a logo, it's stored as just the path like "default/brand/images/logo.png".
-  // We need to generate a short-lived signed URL for the UI to display it securely.
   if (settings.logo_url && !settings.logo_url.startsWith("http")) {
+    const storage = createStorageClient();
     const { data: signedUrlData, error: signedUrlError } =
-      await supabase.storage
+      await storage.storage
         .from(SUPABASE_BUCKET_NAME)
-        .createSignedUrl(settings.logo_url, 60 * 60); // 1 hour expiry
+        .createSignedUrl(settings.logo_url, 60 * 60);
 
     if (!signedUrlError && signedUrlData) {
       settings.logo_url = signedUrlData.signedUrl;
@@ -74,40 +67,32 @@ export async function getBrandVisualSettings(): Promise<BrandVisualSettings | nu
 }
 
 export async function saveBrandVisualSettings(settings: BrandVisualSettings) {
-  const supabase = await createClient();
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) throw new Error("Unauthorized");
-
-  // Always persist the bare storage path — never a signed/public URL
   const newLogoPath = settings.logo_url
     ? normaliseBucketPath(settings.logo_url, SUPABASE_BUCKET_NAME)
     : settings.logo_url;
   const toSave: BrandVisualSettings = { ...settings, logo_url: newLogoPath };
 
-  // Delete the old logo file if it has been replaced
-  const { data: existing } = await supabase
-    .from(TABLES.ORGANIZATION_SETTINGS)
-    .select("value")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_master")
-    .maybeSingle();
+  const db = await getDb();
+  const existing = await db
+    .collection(COLLECTIONS.ORGANIZATION_SETTINGS)
+    .findOne({ org_id: DEFAULT_ORG_ID, key: "brand_master" });
   const oldLogoPath = (existing?.value as BrandVisualSettings | undefined)?.logo_url;
+
   if (oldLogoPath && oldLogoPath !== newLogoPath && !oldLogoPath.startsWith("http")) {
-    await supabase.storage.from(SUPABASE_BUCKET_NAME).remove([oldLogoPath]);
+    const storage = createStorageClient();
+    await storage.storage.from(SUPABASE_BUCKET_NAME).remove([oldLogoPath]);
   }
 
-  const { error } = await supabase.from(TABLES.ORGANIZATION_SETTINGS).upsert(
-    {
-      org_id: DEFAULT_ORG_ID,
-      key: "brand_master",
-      value: toSave,
-    },
-    { onConflict: "org_id, key" },
+  const result = await db.collection(COLLECTIONS.ORGANIZATION_SETTINGS).updateOne(
+    { org_id: DEFAULT_ORG_ID, key: "brand_master" },
+    { $set: { value: toSave } },
+    { upsert: true },
   );
 
-  if (error) {
-    console.error("Failed to save brand visuals", error);
+  if (!result.acknowledged) {
     throw new Error("Failed to save brand visuals");
   }
 
@@ -117,10 +102,8 @@ export async function saveBrandVisualSettings(settings: BrandVisualSettings) {
 }
 
 export async function uploadLogoToStorage(formData: FormData): Promise<string> {
-  const supabase = await createClient();
-
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) throw new Error("Unauthorized");
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
   const file = formData.get("file") as File;
   if (!file) throw new Error("No file provided");
@@ -128,8 +111,9 @@ export async function uploadLogoToStorage(formData: FormData): Promise<string> {
   const uuid = crypto.randomUUID();
   const fileExt = (file.name.split(".").pop() ?? "png").toLowerCase();
   const filePath = `${DEFAULT_ORG_ID}/brands/${uuid}.${fileExt}`;
+  const storage = createStorageClient();
 
-  const { error } = await supabase.storage
+  const { error } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .upload(filePath, file, { upsert: false });
 
@@ -138,7 +122,7 @@ export async function uploadLogoToStorage(formData: FormData): Promise<string> {
     throw new Error("Failed to upload image");
   }
 
-  const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+  const { data: signedUrlData, error: signedUrlError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .createSignedUrl(filePath, 60 * 60);
 
@@ -147,7 +131,6 @@ export async function uploadLogoToStorage(formData: FormData): Promise<string> {
     throw new Error("Failed to generate signed url");
   }
 
-  // We return both the signed URL (for immediate preview) and the raw path (for saving to the DB)
   return JSON.stringify({
     signedUrl: signedUrlData.signedUrl,
     path: filePath,
@@ -161,19 +144,18 @@ export async function uploadLogoToStorage(formData: FormData): Promise<string> {
 export async function uploadIllustrationToTemp(
   formData: FormData,
 ): Promise<string> {
-  const supabase = await createClient();
-
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) throw new Error("Unauthorized");
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
   const file = formData.get("file") as File;
   if (!file) throw new Error("No file provided");
 
   const uuid = crypto.randomUUID();
   const fileExt = (file.name.split(".").pop() ?? "jpg").toLowerCase();
-  const filePath = `temp/${DEFAULT_ORG_ID}/${userData.user.id}/${uuid}.${fileExt}`;
+  const filePath = `temp/${DEFAULT_ORG_ID}/${user.id}/${uuid}.${fileExt}`;
+  const storage = createStorageClient();
 
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .upload(filePath, file, { upsert: false });
 
@@ -182,7 +164,7 @@ export async function uploadIllustrationToTemp(
     throw new Error("Failed to upload illustration");
   }
 
-  const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+  const { data: signedUrlData, error: signedUrlError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .createSignedUrl(filePath, 60 * 60);
 
@@ -200,26 +182,22 @@ export async function uploadIllustrationToTemp(
 }
 
 export async function getIllustrationSettings(): Promise<IllustrationSettings | null> {
-  const supabase = await createClient();
+  const user = await getUser();
+  if (!user) return null;
 
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) return null;
+  const db = await getDb();
+  const row = await db
+    .collection(COLLECTIONS.ORGANIZATION_SETTINGS)
+    .findOne({ org_id: DEFAULT_ORG_ID, key: "brand_illustration" });
 
-  const { data, error } = await supabase
-    .from(TABLES.ORGANIZATION_SETTINGS)
-    .select("value")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_illustration")
-    .maybeSingle();
+  if (!row) return null;
 
-  if (error || !data) return null;
+  const settings = row.value as IllustrationSettings;
+  const storage = createStorageClient();
 
-  const settings = data.value as IllustrationSettings;
-
-  // Resolve signed URLs for every stored media path
   const resolveMedia = async (m: Media): Promise<Media> => {
     if (!m.url || m.url.startsWith("http")) return m;
-    const { data: sd } = await supabase.storage
+    const { data: sd } = await storage.storage
       .from(SUPABASE_BUCKET_NAME)
       .createSignedUrl(m.url, 60 * 60);
     return { ...m, url: sd?.signedUrl ?? m.url };
@@ -271,48 +249,43 @@ export async function getIllustrationSettings(): Promise<IllustrationSettings | 
 
 // Fetches the raw persisted IllustrationSettings (storage paths, not signed URLs).
 // Used by saveIllustrationSettings to diff old vs new and detect orphaned files.
-async function getRawIllustrationSettings(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<IllustrationSettings | null> {
-  const { data, error } = await supabase
-    .from(TABLES.ORGANIZATION_SETTINGS)
-    .select("value")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_illustration")
-    .maybeSingle();
-  if (error || !data) return null;
-  return data.value as IllustrationSettings;
+async function getRawIllustrationSettings(): Promise<IllustrationSettings | null> {
+  const db = await getDb();
+  const row = await db
+    .collection(COLLECTIONS.ORGANIZATION_SETTINGS)
+    .findOne({ org_id: DEFAULT_ORG_ID, key: "brand_illustration" });
+  if (!row) return null;
+  return row.value as IllustrationSettings;
 }
 
 export async function saveIllustrationSettings(
   settings: IllustrationSettings,
 ): Promise<void> {
-  const supabase = await createClient();
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) throw new Error("Unauthorized");
+  const storage = createStorageClient();
 
   // Fetch the currently-persisted raw value (paths, not signed URLs) so the
   // reconciler can diff old vs new and remove any orphaned storage files.
-  const oldSettings = await getRawIllustrationSettings(supabase);
+  const oldSettings = await getRawIllustrationSettings();
 
   const toSave = await resolveMediaInValue(
-    supabase,
+    storage,
     oldSettings,
     settings,
     SUPABASE_BUCKET_NAME,
     `${DEFAULT_ORG_ID}/brands`,
   );
 
-  const { error } = await supabase
-    .from(TABLES.ORGANIZATION_SETTINGS)
-    .upsert(
-      { org_id: DEFAULT_ORG_ID, key: "brand_illustration", value: toSave },
-      { onConflict: "org_id, key" },
-    );
+  const db = await getDb();
+  const result = await db.collection(COLLECTIONS.ORGANIZATION_SETTINGS).updateOne(
+    { org_id: DEFAULT_ORG_ID, key: "brand_illustration" },
+    { $set: { value: toSave } },
+    { upsert: true },
+  );
 
-  if (error) {
-    console.error("Failed to save illustration settings", error);
+  if (!result.acknowledged) {
     throw new Error("Failed to save illustration settings");
   }
 
@@ -330,22 +303,18 @@ export type ContextState = {
 };
 
 export async function getContextStaleness(): Promise<ContextState> {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData?.user) return { isStale: false, status: "not_found" };
+  const user = await getUser();
+  if (!user) return { isStale: false, status: "not_found" };
 
-  const { data } = await supabase
-    .from(TABLES.ORG_CACHE_CONTEXT)
-    .select("is_stale, status")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_illustration")
-    .maybeSingle();
+  const db = await getDb();
+  const row = await db
+    .collection(COLLECTIONS.ORG_CACHE_CONTEXT)
+    .findOne({ org_id: DEFAULT_ORG_ID, key: "brand_illustration" });
 
-  // No record → never compiled → stale
-  if (!data) return { isStale: true, status: "not_found" };
+  if (!row) return { isStale: true, status: "not_found" };
   return {
-    isStale: data.is_stale as boolean,
-    status: (data.status ?? "completed") as ContextState["status"],
+    isStale: row.is_stale as boolean,
+    status: ((row.status as string) ?? "completed") as ContextState["status"],
   };
 }
 
@@ -354,10 +323,9 @@ export async function getContextStaleness(): Promise<ContextState> {
  * Called automatically after brand or illustration settings are saved.
  */
 export async function markContextStale(): Promise<void> {
-  const supabase = await createClient();
-  await supabase
-    .from(TABLES.ORG_CACHE_CONTEXT)
-    .update({ is_stale: true })
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_illustration");
+  const db = await getDb();
+  await db.collection(COLLECTIONS.ORG_CACHE_CONTEXT).updateMany(
+    { org_id: DEFAULT_ORG_ID, key: "brand_illustration" },
+    { $set: { is_stale: true } },
+  );
 }

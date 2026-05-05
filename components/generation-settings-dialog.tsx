@@ -18,8 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { createClient } from "@/utils/supabase/client";
-import { TABLES } from "@/utils/supabase/constant";
 import type {
   GenerationSettings,
   GenerationTabKey,
@@ -58,13 +56,10 @@ export function GenerationSettingsButton({
 
   useEffect(() => {
     if (!open) return;
-    const supabase = createClient();
-    supabase
-      .from(TABLES.TEMPLATES)
-      .select("id, key, name, value")
-      .eq("key", tabKey)
-      .then(({ data }) => {
-        if (data) setTemplates(data as GenerationTemplate[]);
+    fetch(`/api/templates?key=${encodeURIComponent(tabKey)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setTemplates(data as GenerationTemplate[]);
       });
   }, [open, tabKey]);
 

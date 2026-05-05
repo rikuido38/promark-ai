@@ -1,6 +1,7 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
+import { getUser } from "@/utils/cognito/auth";
+import { createStorageClient } from "@/utils/s3/storage";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
 
 const ALLOWED_MIME_TYPES = ["image/png", "image/webp", "image/jpeg"];
@@ -19,10 +20,8 @@ export type UploadAttachmentResult = {
 export async function uploadChatAttachment(
   formData: FormData,
 ): Promise<UploadAttachmentResult> {
-  const supabase = await createClient();
-
-  const { data: userData, error: authError } = await supabase.auth.getUser();
-  if (authError || !userData.user) throw new Error("Unauthorized");
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorized");
 
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No file provided.");
@@ -40,14 +39,15 @@ export async function uploadChatAttachment(
   const storagePath = `temp/${DEFAULT_ORG_ID}/${filename}`;
 
   const bytes = await file.arrayBuffer();
+  const storage = createStorageClient();
 
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .upload(storagePath, bytes, { contentType: file.type, upsert: false });
 
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-  const { data: signedData, error: signedError } = await supabase.storage
+  const { data: signedData, error: signedError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .createSignedUrl(storagePath, 60 * 60); // 1-hour URL
 

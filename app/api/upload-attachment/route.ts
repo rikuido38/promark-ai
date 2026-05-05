@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
+import { getUser } from "@/utils/cognito/auth";
+import { createStorageClient } from "@/utils/s3/storage";
 
 const ALLOWED_MIME_TYPES = new Set(["image/png", "image/webp", "image/jpeg"]);
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-
-  const { data: userData, error: authError } = await supabase.auth.getUser();
-  if (authError || !userData.user) {
+  const user = await getUser();
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -45,7 +44,9 @@ export async function POST(req: NextRequest) {
 
   const bytes = await file.arrayBuffer();
 
-  const { error: uploadError } = await supabase.storage
+  const storage = createStorageClient();
+
+  const { error: uploadError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .upload(storagePath, bytes, { contentType: file.type, upsert: false });
 
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: signedData, error: signedError } = await supabase.storage
+  const { data: signedData, error: signedError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .createSignedUrl(storagePath, 60 * 60); // 1-hour URL
 

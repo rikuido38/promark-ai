@@ -1,4 +1,3 @@
-import { SupabaseClient } from "@supabase/supabase-js";
 import { BrandVisualSettings, IllustrationSettings, PaletteColor } from "@/types/settings";
 import {
   BrandIllustrationContext,
@@ -6,8 +5,10 @@ import {
   IllustrationAnalysisResults,
 } from "@/types/brand-context";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
-import { TABLES } from "@/utils/supabase/constant";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 import { resolveSignedUrl } from "@/lib/storage";
+import { getDb } from "@/utils/mongodb/client";
+import { createStorageClient } from "@/utils/s3/storage";
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
@@ -25,28 +26,25 @@ function sanitizeColor(c: any): PaletteColor {
  * Fetches the raw (unresolved) brand + illustration settings stored in
  * organization_settings. Used by the compile step.
  */
-export async function fetchRawBrandSettings(supabase: SupabaseClient): Promise<{
+export async function fetchRawBrandSettings(): Promise<{
   brand: BrandVisualSettings | null;
   illustration: IllustrationSettings | null;
 }> {
-  const [brandResult, illustrationResult] = await Promise.all([
-    supabase
-      .from(TABLES.ORGANIZATION_SETTINGS)
-      .select("value")
-      .eq("org_id", DEFAULT_ORG_ID)
-      .eq("key", "brand_master")
-      .maybeSingle(),
-    supabase
-      .from(TABLES.ORGANIZATION_SETTINGS)
-      .select("value")
-      .eq("org_id", DEFAULT_ORG_ID)
-      .eq("key", "brand_illustration")
-      .maybeSingle(),
+  const db = await getDb();
+  const [brandRow, illustrationRow] = await Promise.all([
+    db.collection(COLLECTIONS.ORGANIZATION_SETTINGS).findOne({
+      org_id: DEFAULT_ORG_ID,
+      key: "brand_master",
+    }),
+    db.collection(COLLECTIONS.ORGANIZATION_SETTINGS).findOne({
+      org_id: DEFAULT_ORG_ID,
+      key: "brand_illustration",
+    }),
   ]);
 
   return {
-    brand: (brandResult.data?.value as BrandVisualSettings) ?? null,
-    illustration: (illustrationResult.data?.value as IllustrationSettings) ?? null,
+    brand: (brandRow?.value as BrandVisualSettings) ?? null,
+    illustration: (illustrationRow?.value as IllustrationSettings) ?? null,
   };
 }
 
@@ -57,15 +55,14 @@ export async function fetchRawBrandSettings(supabase: SupabaseClient): Promise<{
  * Call this before starting a long-running compile so the UI can reflect state.
  */
 export async function setContextStatus(
-  supabase: SupabaseClient,
   status: "in_progress" | "error",
 ): Promise<void> {
-  await supabase
-    .from(TABLES.ORG_CACHE_CONTEXT)
-    .upsert(
-      { org_id: DEFAULT_ORG_ID, key: "brand_illustration", status, is_stale: true },
-      { onConflict: "org_id, key" },
-    );
+  const db = await getDb();
+  await db.collection(COLLECTIONS.ORG_CACHE_CONTEXT).updateOne(
+    { org_id: DEFAULT_ORG_ID, key: "brand_illustration" },
+    { $set: { status, is_stale: true } },
+    { upsert: true },
+  );
 }
 
 // ── Persist / read ────────────────────────────────────────────────────────────
@@ -75,24 +72,23 @@ export async function setContextStatus(
  * Upserts on (org_id, key) so re-compiling always refreshes the stored value.
  */
 export async function saveBrandContext(
-  supabase: SupabaseClient,
   context: BrandIllustrationContextRaw,
 ): Promise<void> {
-  const { error } = await supabase
-    .from(TABLES.ORG_CACHE_CONTEXT)
-    .upsert(
-      {
-        org_id: DEFAULT_ORG_ID,
-        key: "brand_illustration",
+  const db = await getDb();
+  const result = await db.collection(COLLECTIONS.ORG_CACHE_CONTEXT).updateOne(
+    { org_id: DEFAULT_ORG_ID, key: "brand_illustration" },
+    {
+      $set: {
         value: context,
         is_stale: false,
         status: "completed",
         compiled_at: context.compiled_at,
       },
-      { onConflict: "org_id, key" },
-    );
+    },
+    { upsert: true },
+  );
 
-  if (error) throw new Error(`Failed to save brand context: ${error.message}`);
+  if (!result.acknowledged) throw new Error("Failed to save brand context");
 }
 
 /**
@@ -100,56 +96,55 @@ export async function saveBrandContext(
  * storage paths to fresh signed URLs (1-hour expiry).
  * Returns null if the context has never been compiled.
  */
-export async function getBrandContext(
-  supabase: SupabaseClient,
-): Promise<BrandIllustrationContext | null> {
-  const { data, error } = await supabase
-    .from(TABLES.ORG_CACHE_CONTEXT)
-    .select("value")
-    .eq("org_id", DEFAULT_ORG_ID)
-    .eq("key", "brand_illustration")
-    .maybeSingle();
+export async function getBrandContext(): Promise<BrandIllustrationContext | null> {
+  const db = await getDb();
+  const row = await db.collection(COLLECTIONS.ORG_CACHE_CONTEXT).findOne({
+    org_id: DEFAULT_ORG_ID,
+    key: "brand_illustration",
+  });
 
-  if (error || !data) return null;
+  if (!row) return null;
 
-  const raw = data.value as BrandIllustrationContextRaw;
+  const raw = row.value as BrandIllustrationContextRaw;
 
   // Guard against stale/incomplete rows (e.g. compiled before brand settings existed)
   if (!raw?.brand) return null;
 
+  const storage = createStorageClient();
+
   const [logoUrl, styleSampleUrls, paletteImageUrls, proportionImageUrls, usageSampleUrls, characterData] =
     await Promise.all([
-      resolveSignedUrl(supabase, raw.brand.logo_path, SUPABASE_BUCKET_NAME),
+      resolveSignedUrl(storage, raw.brand.logo_path, SUPABASE_BUCKET_NAME),
       Promise.all(
         (raw.illustration?.style_image_paths ?? []).map((p) =>
-          resolveSignedUrl(supabase, p, SUPABASE_BUCKET_NAME),
+          resolveSignedUrl(storage, p, SUPABASE_BUCKET_NAME),
         ),
       ),
       Promise.all(
         (raw.illustration?.brand_colour_palette?.sample_image_paths ?? []).map((p) =>
-          resolveSignedUrl(supabase, p, SUPABASE_BUCKET_NAME),
+          resolveSignedUrl(storage, p, SUPABASE_BUCKET_NAME),
         ),
       ),
       Promise.all(
         (raw.illustration?.brand_colour_proportion?.sample_image_paths ?? []).map((p) =>
-          resolveSignedUrl(supabase, p, SUPABASE_BUCKET_NAME),
+          resolveSignedUrl(storage, p, SUPABASE_BUCKET_NAME),
         ),
       ),
       Promise.all(
         (raw.illustration?.usages ?? []).map((u) =>
-          resolveSignedUrl(supabase, u.sample_image_path, SUPABASE_BUCKET_NAME),
+          resolveSignedUrl(storage, u.sample_image_path, SUPABASE_BUCKET_NAME),
         ),
       ),
       Promise.all(
         (raw.illustration?.characters ?? []).map(async (c) => ({
           reference_image_url: await resolveSignedUrl(
-            supabase,
+            storage,
             c.reference_image_path,
             SUPABASE_BUCKET_NAME,
           ),
           guidelines: await Promise.all(
             c.guidelines.map(async (g) => ({
-              sample_image_url: await resolveSignedUrl(supabase, g.sample_image_path, SUPABASE_BUCKET_NAME),
+              sample_image_url: await resolveSignedUrl(storage, g.sample_image_path, SUPABASE_BUCKET_NAME),
             })),
           ),
         })),
@@ -229,12 +224,12 @@ export function buildContextDocument(
           logo_path: brand.logo_url,
           logo_guidelines: brand.logo_guidelines,
         primary_colors: (brand.primary_colors_hex ?? []).map((c) =>
-          typeof c === "string" ? c : (c as { hex?: string }).hex ?? c,
-        ),
+          typeof c === "string" ? c : ((c as { hex?: string }).hex ?? ""),
+        ).filter((c): c is string => Boolean(c)),
         primary_color_guidelines: brand.primary_color_guidelines,
         secondary_colors: (brand.secondary_colors_hex ?? []).map((c) =>
-          typeof c === "string" ? c : (c as { hex?: string }).hex ?? c,
-        ),
+          typeof c === "string" ? c : ((c as { hex?: string }).hex ?? ""),
+        ).filter((c): c is string => Boolean(c)),
           secondary_color_guidelines: brand.secondary_color_guidelines,
           typography_rules: brand.typography_rules,
           composition_rules: brand.composition_rules,

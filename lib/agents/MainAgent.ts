@@ -3,12 +3,10 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { memorySaver, getOrCreateSession } from "./sessionStore";
-import { classifyIntent } from "./intentRouter";
-import { resolveAgentTool, resolveAllAgentTools, AGENT_REGISTRY } from "./agentRegistry";
+import { getOrCreateSession } from "./sessionStore";
+import { getCheckpointer } from "./checkpointer";
+import { resolveAllAgentTools } from "./agentRegistry";
 import type { AgentFactoryOptions } from "./agentRegistry";
-import type { RouteMode } from "./intentRouter";
 import type { AssistantOutput } from "@/types/agent";
 import type { GenerationSettings } from "@/types/generation-settings";
 
@@ -82,11 +80,12 @@ Rules:
   NEVER suggest or ask the user to upload a logo, brand context, brand assets, or any brand
   visual materials. Assume all of that is already configured and available.`;
 
-function buildInstructions(assistantName: string | null, date: string): string {
-  const nameLine = assistantName
-    ? `Your name is ${assistantName}.`
+function buildInstructions(assistantName: string | null, date: string, forceTool?: string): string {
+  const nameLine = assistantName ? `Your name is ${assistantName}.` : "";
+  const forceToolLine = forceTool
+    ? `\nFor this request you MUST call the '${forceTool}' tool.`
     : "";
-  return `${nameLine}\nToday's date is ${date}.\n\n${BASE_INSTRUCTIONS}`;
+  return `${nameLine}\nToday's date is ${date}.${forceToolLine}\n\n${BASE_INSTRUCTIONS}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,21 +106,12 @@ export interface RunMainAgentOptions {
    */
   assistantName?: string | null;
   /**
-   * Supabase client for the current request.
-   * Required for tools that access storage or database (e.g. illustration generation).
+   * When set, instructs the main agent to call this specific tool for the
+   * current request. Use when the call site already knows the intent
+   * (e.g. a UI "Generate Illustration" button). The LLM still runs and
+   * uses conversation history — this is a hint, not a bypass.
    */
-  supabase: SupabaseClient;
-  /**
-   * Override the intent classifier. When provided together with `target`,
-   * `classifyIntent` is skipped entirely and the specified workflow is used
-   * directly — useful when the call site already knows the exact intent.
-   */
-  intent?: RouteMode;
-  /**
-   * Target workflow ID from WORKFLOW_REGISTRY to dispatch to.
-   * Only used when `intent` is "direct" or "pipeline".
-   */
-  target?: string;
+  forceTool?: string;
   /**
    * Image generation model to use in illustration subagents.
    * Defaults to "gpt-image-1" if not provided.
@@ -148,16 +138,12 @@ export interface RunMainAgentResult {
 /**
  * Run the main orchestrator agent for a single conversation turn.
  *
- * The session identified by `sessionId` is looked up (or created) from the
- * in-memory store. The SDK prepends the full conversation history before the
- * model call and persists the new turn after it completes.
- */
-/**
- * Run the main orchestrator agent for a single conversation turn.
+ * All registered subagent tools are always available. The LLM selects the
+ * appropriate tool(s) from their descriptions. Pass `forceTool` to guide the
+ * LLM toward a specific tool when the call site already knows the intent.
  *
- * The session identified by `sessionId` is used as the LangGraph thread_id so
- * the MemorySaver checkpointer automatically retains conversation history
- * across turns. A new UUID is generated when no sessionId is provided.
+ * Conversation history is persisted in Supabase Postgres via the LangGraph
+ * PostgresSaver checkpointer, keyed by `sessionId` (thread_id).
  */
 export async function runMainAgent(
   options: RunMainAgentOptions,
@@ -166,9 +152,7 @@ export async function runMainAgent(
     userMessage,
     sessionId: incomingId,
     assistantName = null,
-    supabase,
-    intent: explicitIntent,
-    target: explicitTarget,
+    forceTool,
     imageModel,
     sampleImageUrls,
     generationSettings,
@@ -176,6 +160,7 @@ export async function runMainAgent(
 
   console.log("[MainAgent] runMainAgent: request", {
     sessionId: incomingId,
+    forceTool,
     imageModel,
     sampleImageUrls,
     userMessage,
@@ -185,7 +170,6 @@ export async function runMainAgent(
 
   const sessionId = getOrCreateSession(incomingId ?? randomUUID());
 
-  // Stamp the current date at call time so every turn reflects the real date.
   const currentDate = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
     year: "numeric",
@@ -193,40 +177,22 @@ export async function runMainAgent(
     day: "numeric",
   });
 
-  // ── Intent routing ────────────────────────────────────────────────────────
-  const route =
-    explicitIntent && explicitTarget
-      ? { mode: explicitIntent, target: explicitTarget }
-      : classifyIntent(userMessage);
+  const tools = resolveAllAgentTools(agentOptions);
 
-  console.log("[MainAgent] route =", JSON.stringify(route));
+  console.log(
+    "[MainAgent] tools =",
+    tools.map((t) => t.name),
+    "| forceTool =",
+    forceTool ?? "none",
+  );
 
-  // ── Direct mode: invoke the registered tool straight, no LLM round-trip ──
-  if (route.mode === "direct" && route.target) {
-    const directResult = await runDirectTool(route.target, userMessage, supabase, agentOptions);
-    if (directResult) {
-      return { output: directResult, sessionId };
-    }
-  }
-
-  // ── Agentic / pipeline: delegate to the orchestrator LLM ─────────────────
-  let tools;
-  if (route.mode === "agentic") {
-    tools = resolveAllAgentTools(supabase, agentOptions);
-  } else {
-    const singleTool = route.target
-      ? resolveAgentTool(route.target, supabase, agentOptions)
-      : null;
-    tools = singleTool ? [singleTool] : [];
-  }
-
-  console.log("[MainAgent] agent mode =", route.mode, "| tools =", tools.map((t) => t.name));
+  const checkpointer = await getCheckpointer();
 
   const agent = createDeepAgent({
     model: new ChatOpenAI({ model: MODEL, temperature: 0 }),
-    systemPrompt: buildInstructions(assistantName, currentDate),
+    systemPrompt: buildInstructions(assistantName, currentDate, forceTool),
     tools,
-    checkpointer: memorySaver,
+    checkpointer,
   });
 
   const result = await agent.invoke(
@@ -257,54 +223,6 @@ export async function runMainAgent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Direct-mode execution: call a registered tool without an LLM round-trip.
- * Returns a complete AssistantOutput, or null if the target isn't registered.
- */
-async function runDirectTool(
-  target: string,
-  userMessage: string,
-  supabase: SupabaseClient,
-  agentOptions: AgentFactoryOptions,
-): Promise<AssistantOutput | null> {
-  const entry = AGENT_REGISTRY[target];
-  if (!entry) return null;
-
-  const directTool = entry.createTool(supabase, agentOptions);
-  const toolInput = entry.buildDirectInput?.(userMessage) ?? { user_request: userMessage };
-
-  console.log("[MainAgent] direct: invoking tool =", target, "| input =", JSON.stringify(toolInput));
-  const toolResult: string = await directTool.invoke(toolInput);
-  console.log("[MainAgent] direct: raw tool result =", toolResult.slice(0, 500));
-
-  const medias: AssistantOutput["medias"] = [];
-  try {
-    const parsed = JSON.parse(toolResult);
-    if (typeof parsed?.signedUrl === "string" && typeof parsed?.filename === "string") {
-      medias.push({
-        filename: parsed.filename,
-        signedUrl: parsed.signedUrl,
-        type: parsed.type ?? "image",
-        ...(parsed.storagePath ? { storagePath: parsed.storagePath } : {}),
-      });
-    }
-  } catch { /* not JSON */ }
-
-  console.log("[MainAgent] direct: medias =", JSON.stringify(medias));
-
-  return {
-    text: medias.length > 0 ? "Your illustration is ready." : toolResult,
-    medias,
-    confidenceScore: 1,
-    metadata: {},
-  };
-}
-
-/**
- * Fallback: extract and JSON-parse the last AI message from the graph output
- * when structured output was not surfaced by the runtime.
- */
 function parseLastAiMessage(messages: unknown[]): Partial<AssistantOutput> {
   if (!Array.isArray(messages)) return {};
   const lastAi = [...messages].reverse().find(

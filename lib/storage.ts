@@ -1,5 +1,25 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Media } from "@/types/models";
+
+// Minimal duck-typed interface satisfied by both Supabase and S3 storage clients
+export interface StorageClientLike {
+  storage: {
+    from(bucket: string): {
+      createSignedUrl(
+        path: string,
+        expiresIn: number,
+      ): Promise<{ data: { signedUrl: string } | null; error: { message: string } | null }>;
+      createSignedUrls(
+        paths: string[],
+        expiresIn: number,
+      ): Promise<{ data: { path: string; signedUrl: string }[] | null; error: { message: string } | null }>;
+      move(
+        from: string,
+        to: string,
+      ): Promise<{ error: { message: string } | null }>;
+      remove(paths: string[]): Promise<{ error: { message: string } | null }>;
+    };
+  };
+}
 
 // ── Type guard ────────────────────────────────────────────────────────────────
 
@@ -49,6 +69,7 @@ export function normaliseBucketPath(url: string, bucket: string): string {
 function extractStoragePath(url: string, bucket: string): string | null {
   try {
     const u = new URL(url);
+    // Supabase storage URL patterns
     for (const prefix of [
       `/storage/v1/object/sign/${bucket}/`,
       `/storage/v1/object/public/${bucket}/`,
@@ -57,6 +78,21 @@ function extractStoragePath(url: string, bucket: string): string | null {
       if (u.pathname.startsWith(prefix)) {
         return u.pathname.slice(prefix.length);
       }
+    }
+    // S3 virtual-hosted-style: https://{bucket}.s3[.region].amazonaws.com/{key}
+    if (
+      u.hostname === `${bucket}.s3.amazonaws.com` ||
+      u.hostname.match(new RegExp(`^${bucket}\.s3\.[^.]+\.amazonaws\.com$`))
+    ) {
+      return decodeURIComponent(u.pathname.slice(1));
+    }
+    // S3 path-style: https://s3[.region].amazonaws.com/{bucket}/{key}
+    const s3PathPrefix = `/${bucket}/`;
+    if (
+      /^s3(\.[^.]+)?\.amazonaws\.com$/.test(u.hostname) &&
+      u.pathname.startsWith(s3PathPrefix)
+    ) {
+      return decodeURIComponent(u.pathname.slice(s3PathPrefix.length));
     }
   } catch {
     // not a valid URL – ignore
@@ -69,7 +105,7 @@ function extractStoragePath(url: string, bucket: string): string | null {
 // file to its final path and returns a new Media with the updated url.
 
 async function resolveMediaNode(
-  supabase: SupabaseClient,
+  supabase: StorageClientLike,
   value: Media,
   bucket: string,
   destDir: string,
@@ -101,7 +137,7 @@ async function resolveMediaNode(
 }
 
 async function resolveNode<T>(
-  supabase: SupabaseClient,
+  supabase: StorageClientLike,
   value: T,
   bucket: string,
   destDir: string,
@@ -150,7 +186,7 @@ async function resolveNode<T>(
  *                  their final storage paths.
  */
 export async function resolveMediaInValue<T>(
-  supabase: SupabaseClient,
+  supabase: StorageClientLike,
   oldValue: T | null,
   newValue: T,
   bucket: string,
@@ -185,7 +221,7 @@ export async function resolveMediaInValue<T>(
  * Passes through paths that are already full http URLs.
  */
 export async function resolveSignedUrl(
-  supabase: SupabaseClient,
+  supabase: StorageClientLike,
   path: string | undefined | null,
   bucket: string,
 ): Promise<string | undefined> {
@@ -200,7 +236,7 @@ export async function resolveSignedUrl(
  * Paths that are already http URLs are passed through as-is.
  */
 export async function batchResolveSignedUrls(
-  supabase: SupabaseClient,
+  supabase: StorageClientLike,
   paths: (string | undefined | null)[],
   bucket: string,
 ): Promise<Map<string, string>> {
