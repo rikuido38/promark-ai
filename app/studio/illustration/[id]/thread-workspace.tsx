@@ -9,6 +9,7 @@ import {
 import { AssistantChatbot, type AssistantChatbotHandle, type Message } from "@/components/assistant-chatbot";
 import { ImagePreviewPanel } from "./image-preview-panel";
 import { saveChatMessage, markNewChatDone } from "./actions";
+import type { MediaRecord } from "./actions";
 import type { MediaItem, AssistantOutput } from "@/types/agent";
 import type { GenerationSettings } from "@/types/generation-settings";
 import type { StudioThreadChat } from "./actions";
@@ -19,13 +20,14 @@ interface ThreadWorkspaceProps {
   initialModel?: string;
   isNewChat: boolean;
   chatHistory: StudioThreadChat[];
-  initialMedias?: Array<{ filename: string; signedUrl: string; storagePath: string }>;
+  initialMedias?: Array<{ filename: string; signedUrl: string; storagePath: string; seed_details?: string }>;
 }
 
 async function illustrationHandler(
   message: string,
   model?: string,
   settings?: GenerationSettings,
+  previousImageSeedDetails?: string,
 ): Promise<AssistantOutput> {
   const attachSplit = message.split("\n\n__IMG_REFS__\n");
   const prompt = attachSplit[0].trim();
@@ -36,7 +38,7 @@ async function illustrationHandler(
   const res = await fetch("/api/generation/illustration", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, model, sampleImageUrls, settings }),
+    body: JSON.stringify({ prompt, model, sampleImageUrls, settings, previousImageSeedDetails }),
   });
 
   if (!res.ok) {
@@ -56,10 +58,11 @@ function historyToMessages(history: StudioThreadChat[]): Message[] {
     content: row.content,
     medias: row.role === "assistant"
       ? row.image_signed_urls.map((url, i) => ({
-          filename: row.medias[i] ?? url,
+          filename: row.medias[i]?.storagePath ?? url,
           signedUrl: url,
           type: "image" as const,
-          storagePath: row.medias[i],
+          storagePath: row.medias[i]?.storagePath,
+          seed_details: row.medias[i]?.seed_details,
         }))
       : [],
   }));
@@ -88,14 +91,16 @@ export function ThreadWorkspace({
         signedUrl: m.signedUrl,
         type: "image" as const,
         storagePath: m.storagePath,
+        seed_details: m.seed_details,
       }));
     }
     return chatHistory.flatMap((row) =>
       row.image_signed_urls.map((url, i) => ({
-        filename: row.medias[i] ?? url,
+        filename: row.medias[i]?.storagePath ?? url,
         signedUrl: url,
         type: "image" as const,
-        storagePath: row.medias[i],
+        storagePath: row.medias[i]?.storagePath,
+        seed_details: row.medias[i]?.seed_details,
       })),
     );
   };
@@ -144,17 +149,17 @@ export function ThreadWorkspace({
       messageForAI = `${promptPart}\n\n__IMG_REFS__\n${refList.join("\n")}`;
     }
 
-    const output = await illustrationHandler(messageForAI, model, settings);
+    const output = await illustrationHandler(messageForAI, model, settings, currentMedia?.seed_details);
 
-    // Collect image storage paths from medias
-    const imageStoragePaths = (output.medias ?? [])
+    // Collect structured media records from medias
+    const mediaRecords: MediaRecord[] = (output.medias ?? [])
       .filter((m) => m.storagePath)
-      .map((m) => m.storagePath as string);
+      .map((m) => ({ storagePath: m.storagePath as string, seed_details: m.seed_details }));
 
     // Strip any <img> tags the LLM may have embedded — images are shown in the right panel only
     // eslint-disable-next-line unicorn/prefer-string-replace-all
     const textOnly = output.text.replace(/<img\b[^>]*>/gi, "").trim();
-    await saveChatMessage(threadId, "assistant", textOnly, imageStoragePaths);
+    await saveChatMessage(threadId, "assistant", textOnly, mediaRecords);
 
     // Update preview panel with new images; the first new image auto-becomes current.
     if (output.medias && output.medias.length > 0) {

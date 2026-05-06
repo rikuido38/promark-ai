@@ -19,12 +19,26 @@ export interface StudioThread {
   created_at: string;
 }
 
+/**
+ * Structured record stored in the `medias` array of a chat row.
+ * Replaces the old flat `string[]` of storage paths.
+ */
+export interface MediaRecord {
+  /** Storage path within the bucket, e.g. "temp/default/abc.jpg" */
+  storagePath: string;
+  /**
+   * Auto-generated description of the image: scene, style, characters, colors,
+   * and reference images used. Passed back to the inner agent on edit requests.
+   */
+  seed_details?: string;
+}
+
 export interface StudioThreadChat {
   id: string;
   thread_id: string;
   role: "user" | "assistant";
   content: string;
-  medias: string[];
+  medias: MediaRecord[];
   image_signed_urls: string[]; // resolved at load time, not stored
   created_at: string;
 }
@@ -74,14 +88,14 @@ export async function saveChatMessage(
   threadId: string,
   role: "user" | "assistant",
   content: string,
-  imageStoragePaths: string[] = [],
+  mediaRecords: MediaRecord[] = [],
 ): Promise<void> {
   const db = await getDb();
   await db.collection(COLLECTIONS.STUDIO_THREAD_CHATS).insertOne({
     thread_id: threadId,
     role,
     content,
-    medias: imageStoragePaths,
+    medias: mediaRecords,
     created_at: new Date().toISOString(),
   });
 }
@@ -98,7 +112,11 @@ export async function loadChatHistory(threadId: string): Promise<StudioThreadCha
 
   if (rows.length === 0) return [];
 
-  const allPaths = rows.flatMap((r) => (r.medias as string[]) ?? []);;
+  const allPaths = rows.flatMap((r) =>
+    ((r.medias as MediaRecord[] | string[] | undefined) ?? []).map((m) =>
+      typeof m === "string" ? m : m.storagePath,
+    ),
+  );
   const signedUrlMap = new Map<string, string>();
 
   if (allPaths.length > 0) {
@@ -111,24 +129,31 @@ export async function loadChatHistory(threadId: string): Promise<StudioThreadCha
     }
   }
 
-  return rows.map((r) => ({
-    id: r._id?.toString() ?? "",
-    thread_id: r.thread_id as string,
-    role: r.role as "user" | "assistant",
-    content: r.content as string,
-    medias: (r.medias as string[]) ?? [],
-    image_signed_urls: ((r.medias as string[]) ?? [])
-      .map((p) => signedUrlMap.get(p) ?? "")
-      .filter(Boolean),
-    created_at: r.created_at as string,
-  }));
+  return rows.map((r) => {
+    // Support legacy rows where medias was stored as string[]
+    const rawMedias = (r.medias as MediaRecord[] | string[] | undefined) ?? [];
+    const medias: MediaRecord[] = rawMedias.map((m) =>
+      typeof m === "string" ? { storagePath: m } : m,
+    );
+    return {
+      id: r._id?.toString() ?? "",
+      thread_id: r.thread_id as string,
+      role: r.role as "user" | "assistant",
+      content: r.content as string,
+      medias,
+      image_signed_urls: medias
+        .map((m) => signedUrlMap.get(m.storagePath) ?? "")
+        .filter(Boolean),
+      created_at: r.created_at as string,
+    };
+  });
 }
 
 // ── Load signed URLs from the last assistant message ────────────────────────
 
 export async function loadLastAssistantImages(
   threadId: string,
-): Promise<Array<{ filename: string; signedUrl: string; storagePath: string }>> {
+): Promise<Array<{ filename: string; signedUrl: string; storagePath: string; seed_details?: string }>> {
   const db = await getDb();
   // Use find().sort().limit(1) instead of findOne() to reliably apply sort.
   const rows = await db
@@ -140,7 +165,12 @@ export async function loadLastAssistantImages(
     .toArray();
 
   const row = rows[0];
-  const paths: string[] = (row?.medias as string[] | undefined) ?? [];
+  // Support legacy rows where medias was stored as string[]
+  const rawMedias = (row?.medias as MediaRecord[] | string[] | undefined) ?? [];
+  const mediaRecords: MediaRecord[] = rawMedias.map((m) =>
+    typeof m === "string" ? { storagePath: m } : m,
+  );
+  const paths = mediaRecords.map((m) => m.storagePath);
   console.log("[loadLastAssistantImages] threadId =", threadId, "| row found =", !!row, "| paths =", paths);
 
   if (paths.length === 0) return [];
@@ -154,11 +184,15 @@ export async function loadLastAssistantImages(
 
   return (signed ?? [])
     .filter((s) => s.signedUrl && s.path)
-    .map((s) => ({
-      filename: s.path.split("/").pop() ?? s.path,
-      signedUrl: s.signedUrl,
-      storagePath: s.path,
-    }));
+    .map((s) => {
+      const record = mediaRecords.find((m) => m.storagePath === s.path);
+      return {
+        filename: s.path.split("/").pop() ?? s.path,
+        signedUrl: s.signedUrl,
+        storagePath: s.path,
+        seed_details: record?.seed_details,
+      };
+    });
 }
 
 // ── Fetch a single thread ─────────────────────────────────────────────────────

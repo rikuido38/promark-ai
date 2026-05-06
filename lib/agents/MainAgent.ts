@@ -13,7 +13,7 @@ import type { GenerationSettings } from "@/types/generation-settings";
 // Model
 // ---------------------------------------------------------------------------
 
-const MODEL = "gpt-5.2";
+const MODEL = "gpt-5.4";
 
 // ---------------------------------------------------------------------------
 // Agent definition
@@ -41,7 +41,7 @@ Media handling — IMPORTANT:
 - Include "storagePath" in the media entry if the tool result contains it.
 - For illustration/image tools set "type" to "image".
 - For file/document tools set "type" to "url".
-- Example media entry: { "filename": "abc.png", "signedUrl": "https://...", "storagePath": "temp/default/abc.png", "type": "image" }
+- Example media entry: { "filename": "abc.png", "signedUrl": "https://...", "storagePath": "temp/default/abc.png", "seed_details": "Scene: ...\nStyle: ...\nCharacters: ...", "type": "image" }
 - Always include every media returned by a tool — never discard them.
 
 Rules:
@@ -99,6 +99,12 @@ export interface RunMainAgentOptions {
    * size, output format, compression).
    */
   generationSettings?: GenerationSettings;
+  /**
+   * Seed details from the image currently shown in the preview panel.
+   * Forwarded to the inner illustration agent on edit requests so it understands
+   * what was in the previous image without needing full conversation history.
+   */
+  previousImageSeedDetails?: string;
 }
 
 export interface RunMainAgentResult {
@@ -114,8 +120,8 @@ export interface RunMainAgentResult {
  * appropriate tool(s) from their descriptions. Pass `forceTool` to guide the
  * LLM toward a specific tool when the call site already knows the intent.
  *
- * Conversation history is persisted in Supabase Postgres via the LangGraph
- * PostgresSaver checkpointer, keyed by `sessionId` (thread_id).
+ * Conversation history is persisted in MongoDB via the LangGraph
+ * MongoDBSaver checkpointer, keyed by `sessionId` (thread_id).
  */
 export async function runMainAgent(
   options: RunMainAgentOptions,
@@ -128,6 +134,7 @@ export async function runMainAgent(
     imageModel,
     sampleImageUrls,
     generationSettings,
+    previousImageSeedDetails,
   } = options;
 
   console.log("[MainAgent] runMainAgent: request", {
@@ -138,7 +145,7 @@ export async function runMainAgent(
     userMessage,
   });
 
-  const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage, generationSettings };
+  const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage, generationSettings, previousImageSeedDetails };
 
   const sessionId = getOrCreateSession(incomingId ?? randomUUID());
 

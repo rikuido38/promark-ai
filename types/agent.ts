@@ -32,6 +32,12 @@ export interface MediaItem {
   type: MediaType
   /** Storage path within the bucket — used for server-side operations like copy-to-drafts */
   storagePath?: string
+  /**
+   * Structured description of the generated image: scene prompt, style, characters,
+   * brand colors, and reference images used. Passed back to the inner agent on edit
+   * requests so it understands what was in the previous image without needing history.
+   */
+  seed_details?: string
 }
 
 export interface AssistantOutput {

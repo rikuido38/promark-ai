@@ -1,0 +1,143 @@
+ POST /studio/illustration/fea2ae83-a4e5-4bd1-a6b1-31dd03b2438e 200 in 863ms (next.js: 11ms, proxy.ts: 815ms, application-code: 38ms)
+  └─ ƒ saveChatMessage("fea2ae83-a4e5-4bd1-a6b1-31dd03b2438e", "user", "Change the bedside IV chart to green color") in 31ms app/studio/illustration/[id]/actions.ts
+[MainAgent] runMainAgent: request {
+  sessionId: undefined,
+  forceTool: 'generate_illustration',
+  imageModel: 'gpt-image-2',
+  sampleImageUrls: [
+    'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/65f37028-ed79-4db0-867a-9053300f273b.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260506%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260506T030721Z&X-Amz-Expires=3600&X-Amz-Signature=27f4b7b42a2c9f6773097b23dc930b6847e26243714135322a9f3cd8013efa0b&X-Amz-SignedHeaders=host&x-id=GetObject'
+  ],
+  userMessage: 'Change the bedside IV chart to green color'
+}
+[MainAgent] tools = [ 'generate_illustration' ] | forceTool = generate_illustration
+[loadLastAssistantImages] threadId = fea2ae83-a4e5-4bd1-a6b1-31dd03b2438e | row found = true | paths = [ 'temp/default/65f37028-ed79-4db0-867a-9053300f273b.jpg' ]
+[loadLastAssistantImages] signed count = 1 | error = null
+ GET /studio/illustration/fea2ae83-a4e5-4bd1-a6b1-31dd03b2438e 200 in 357ms (next.js: 15ms, proxy.ts: 2ms, application-code: 340ms)
+[BrandIllustrationTool] invoked | user_request = Change the bedside IV chart to green color
+[BrandIllustrationTool] options = {"imageModel":"gpt-image-2","sampleImageUrls":["https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/65f37028-ed79-4db0-867a-9053300f273b.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260506%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260506T030721Z&X-Amz-Expires=3600&X-Amz-Signature=27f4b7b42a2c9f6773097b23dc930b6847e26243714135322a9f3cd8013efa0b&X-Amz-SignedHeaders=host&x-id=GetObject"],"generationSettings":{"model":"gpt-image-2","quality":"medium","size":"auto","compression":85}}
+[BrandIllustrationTool] inner agent created, invoking pipeline...
+[BrandIllustrationAgent] guideline for "Ah Bu": none matched
+[BrandIllustrationAgent] guideline for "Ah Girl": none matched
+[BrandIllustrationAgent] guideline for "Ah Gong": none matched
+[BrandIllustrationAgent] generate_illustration: image summary {
+  user_prompt: 'Change the bedside IV chart to green color',
+  character_names: [ 'Ah Bu', 'Ah Girl', 'Ah Gong' ],
+  sampleImageUrls: [
+    'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/65f37028-ed79-4db0-867a-9053300f273b.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260506%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260506T030721Z&X-Amz-Expires=3600&X-Amz-Signature=27f4b7b42a2c9f6773097b23dc930b6847e26243714135322a9f3cd8013efa0b&X-Amz-SignedHeaders=host&x-id=GetObject'
+  ],
+  charsWithImages: [ 'Ah Bu', 'Ah Girl', 'Ah Gong' ],
+  charGuidelineImagesCount: 0,
+  sampleImagesDownloaded: 1
+}
+[BrandIllustrationAgent] generate_illustration: calling provider {
+  model: 'gpt-image-2',
+  quality: 'medium',
+  size: undefined,
+  referenceImageCount: 4
+}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationAgent] DEBUG — inner agent system prompt:
+You are a brand illustration specialist.
+Your job is to generate vector-style illustrations that precisely follow the brand's
+visual DNA — art style, colour palette, proportions, and character appearance.
+
+Steps you MUST follow in order:
+1. Call fetch_brand_context to load the compiled brand illustration context.
+   If it returns no context, stop and tell the user to compile brand context first.
+2. Read the user's request carefully. Identify any brand character names mentioned
+   (e.g. "Ah Gong", "Ah Ma") from the characters list in the returned context.
+3. If one or more brand characters are mentioned, call fetch_character_references
+   with those exact character names. These reference images pin exact facial
+   features, skin tones, colours, and proportions — they must NOT be altered.
+4. Call generate_illustration with:
+   - user_prompt: copy the user's message VERBATIM. Fix obvious typos only.
+     Do NOT add words, reframe the request, describe the character's role or appearance,
+     or insert any style, colour, composition, or brand guidance.
+     The illustration system handles all of that automatically.
+   - character_names: the exact names of brand characters to include
+     (must match those fetched in step 3; empty array if none)
+   - sample_image_urls: any image URLs the user attached to their message
+     (these are direction or behaviour reference samples, not character portraits)
+5. Call upload_illustration to save the result to storage.
+6. Your FINAL output MUST be ONLY the exact JSON string returned by
+   upload_illustration. No other text, explanation, or formatting.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationAgent] DEBUG — image generation prompt:
+Create a brand-consistent vector illustration.
+
+STYLE: Our illustrations are inspired by our brand Lion logo, expressed  through a bold, distinctive style defined by three key  characteristics: geometric forms, sharp flowing lines,  and a flat graphic approach.   The compositions are built using geometric shapes  that combine straight lines, curves, and sharp corners  to enhance movement and flow. Flowing lines, inspired  by the lion&#39;s mane, are used in body details and motion  elements to convey energy, while the overall flat graphic  style is maintained with subtle perspective to introduce  a sense of dynamism.
+BRAND PALETTE: Our illustration colour palette is an extension of our brand  colour palette, consisting of brand, neutral, and accent  colours. Tints of brand colours are used throughout our  illustrations to create a harmonious and cohesive visual  system. Our brand colours ensure our illustrations remain  consistent and on-brand.    Indoor and outdoor colours are available to create a range  of environmental settings, resulting in a more natural and  realistic feel. Skin tones help represent diverse demographics.  Accent colours serve as purposeful pops of colour to enhance  visual interest and elevate our brand illustrations
+COLOUR GUIDANCE: Palette is built around a strong warm–cool brand pair: saturated Great Eastern Red (#D52B1E) and deep Great Eastern Blue (#212492), balanced by neutral Cool Grey, black, and white. Tints are created by mixing toward white rather than lowering opacity, producing clean stepped values (80–10%) for softer fills and backgrounds.
+
+Shadows are hue-linked, not just darker versions: light blue areas shift to a lavender-blue shadow, while warm light and skin shadows lean into branded reds, creating cohesive cross-palette harmony. Skin tones move from peach to ochre with progressively red-brown shadows, keeping warmth consistent.
+
+Accent colors are vivid and high-chroma—orange, pink, yellow, green, brown—each paired with a darker same-family or red-biased shadow. Notably, Dark Red 1 and 2 double as shadow colors for orange and pink, reinforcing brand identity. Overall harmony is analogous-warm with blue as the primary complementary counterweight; contrast is medium-high, with dark accents and black anchoring pale environmental tones.
+
+BRAND COLOURS:
+  Primary: #D52B1e, #212492
+  Secondary: #404040
+  Guidelines: Red should always be the colour that stands out the most, and red is always greater than blue. Regardless of black and white, the ratio of red should always be greater than blue. Please refer to the examples on the left as illustrated. 
+
+FACIAL COLOUR PALETTE (apply exactly for all characters):
+  Hair: #404040 (Hair base, only apply for elderly characters such as Ah Gong and Ah Ma), #404040 (Hair highlight, only apply for elderly characters such as Ah Gong and Ah Ma), #000000 (Hair base, default hair base and eyes for other characters), #404040 (Hair highlights, default hair base and eyes for other characters)
+  Skin tones: #FFBD8D (Base skin)
+  Shadows: #D52B1E
+  Facial features: #D52B1E (Nose, eyes, mouth, etc)
+
+OUTPUT REQUIREMENTS:
+  - PNG format with fully transparent background
+  - Strictly follow brand colour palette — do not introduce new colours
+  - Apply facial colour guidelines exactly as specified above
+  - Vector illustration aesthetic
+
+SCENE: Change the bedside IV chart to green color
+
+IMAGE REFERENCES:
+Image 1: Character reference for &quot;Ah Bu&quot; — match appearance, colours, and proportions exactly.
+Image 2: Character reference for &quot;Ah Girl&quot; — match appearance, colours, and proportions exactly.
+Image 3: Character reference for &quot;Ah Gong&quot; — match appearance, colours, and proportions exactly.
+Image 4: User input image — use for pose, scene, or edit reference.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationAgent] DEBUG — reference images passed to provider:
+  [1/4] label="Character reference for "Ah Bu" — match appearance, colours, and proportions exactly." mediaType=image/png base64Bytes=80328
+  [2/4] label="Character reference for "Ah Girl" — match appearance, colours, and proportions exactly." mediaType=image/png base64Bytes=94832
+  [3/4] label="Character reference for "Ah Gong" — match appearance, colours, and proportions exactly." mediaType=image/png base64Bytes=97224
+  [4/4] label="User input image — use for pose, scene, or edit reference." mediaType=image/png base64Bytes=1950316
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationTool] inner agent finished | message count = 10
+[BrandIllustrationTool] upload result found | filename = e96d5108-c82c-44f6-8b91-02cbcb683356.jpg | storagePath = temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg
+[MainAgent] currentTurnMsgs count = 4
+[MainAgent] raw.medias = [
+  {
+    filename: 'e96d5108-c82c-44f6-8b91-02cbcb683356.jpg',
+    signedUrl: 'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260506%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260506T033637Z&X-Amz-Expires=3600&X-Amz-Signature=f45e7fbe55b712f1d0d9191758721f46daf37b1ce69255adb93dc028b4e7f42d&X-Amz-SignedHeaders=host&x-id=GetObject',
+    storagePath: 'temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg',
+    seed_details: 'Scene: Ah Bu and Ah Girl stand beside Ah Gong’s hospital bed in a warm flat-vector care scene, with the bedside IV chart changed to green.\n' +
+      'Style: flat vector, geometric, bold; soft lighting; warm mood.\n' +
+      'Characters: Ah Bu, Ah Girl, Ah Gong.',
+    type: 'image'
+  }
+]
+[MainAgent] toolMedias = [
+  {
+    filename: 'e96d5108-c82c-44f6-8b91-02cbcb683356.jpg',
+    signedUrl: 'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260506%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260506T033637Z&X-Amz-Expires=3600&X-Amz-Signature=f45e7fbe55b712f1d0d9191758721f46daf37b1ce69255adb93dc028b4e7f42d&X-Amz-SignedHeaders=host&x-id=GetObject',
+    type: 'image',
+    storagePath: 'temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg'
+  }
+]
+[MainAgent] mergedMedias = [
+  {
+    filename: 'e96d5108-c82c-44f6-8b91-02cbcb683356.jpg',
+    signedUrl: 'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260506%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260506T033637Z&X-Amz-Expires=3600&X-Amz-Signature=f45e7fbe55b712f1d0d9191758721f46daf37b1ce69255adb93dc028b4e7f42d&X-Amz-SignedHeaders=host&x-id=GetObject',
+    storagePath: 'temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg',
+    seed_details: 'Scene: Ah Bu and Ah Girl stand beside Ah Gong’s hospital bed in a warm flat-vector care scene, with the bedside IV chart changed to green.\n' +
+      'Style: flat vector, geometric, bold; soft lighting; warm mood.\n' +
+      'Characters: Ah Bu, Ah Girl, Ah Gong.',
+    type: 'image'
+  }
+]
+ POST /api/generation/illustration 200 in 2.2min (next.js: 2ms, proxy.ts: 1821µs, application-code: 2.2min)
+ POST /studio/illustration/fea2ae83-a4e5-4bd1-a6b1-31dd03b2438e 200 in 121ms (next.js: 4ms, proxy.ts: 3ms, application-code: 114ms)
+  └─ ƒ saveChatMessage("fea2ae83-a4e5-4bd1-a6b1-31dd03b2438e", "assistant", "<p>Done — I updated the bedside IV chart to green.</p>", [{"seed_details":"Scene: Ah Bu and Ah Girl stand beside Ah Gong’s hospital bed in a warm flat-vector care scene, with the bedside IV chart changed to green.\nStyle: flat vector, geometric, bold; soft lighting; warm mood.\nCharacters: Ah Bu, Ah Girl, Ah Gong.","storagePath":"temp/default/e96d5108-c82c-44f6-8b91-02cbcb683356.jpg"}]) in 110ms app/studio/illustration/[id]/actions.ts

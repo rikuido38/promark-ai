@@ -8,6 +8,7 @@ import { join } from "node:path";
 import Mustache from "mustache";
 import Fuse from "fuse.js";
 import sharp from "sharp";
+import { SeedDetailsSchema, SEED_DETAILS_SCHEMA_EXAMPLE } from "./seed-schema";
 import { SUPABASE_BUCKET_NAME, DEFAULT_ORG_ID } from "@/utils/constants";
 import { createStorageClient } from "@/utils/s3/storage";
 import type { BrandIllustrationContext } from "@/types/brand-context";
@@ -37,7 +38,6 @@ type CapturedCharacter = {
   guidelines: Array<{
     title: string;
     description: string;
-    sample_analysis: string | null;
     sample_image_url: string | null;
   }>;
 };
@@ -48,22 +48,32 @@ function formatColors(colors: PaletteColor[]): string {
   return colors.map((c) => (c.description ? `${c.hex} (${c.description})` : c.hex)).join(", ");
 }
 
-// Splits a prompt into unique meaningful words to use as individual Fuse.js queries.
-function extractSearchTokens(prompt: string): string[] {
-  const stopWords = new Set([
-    "the", "a", "an", "and", "or", "in", "on", "of", "to", "with",
-    "for", "is", "are", "was", "were", "be", "been", "have", "has",
-    "had", "do", "does", "did", "not", "but", "at", "by", "from",
-    "this", "that", "it", "its", "keep", "rest", "same", "just",
-  ]);
-  return [
-    ...new Set(
-      prompt
-        .toLowerCase()
-        .split(/\W+/)
-        .filter((w) => w.length > 3 && !stopWords.has(w)),
-    ),
+// Returns the single closest-matching guideline by title/description to the user's prompt.
+function bestMatchingGuideline(
+  guidelines: CapturedCharacter["guidelines"],
+  userPrompt: string,
+): CapturedCharacter["guidelines"][number] | null {
+  if (guidelines.length === 0) return null;
+
+  const fuse = new Fuse(guidelines, {
+    keys: ["title", "description"],
+    threshold: 0.4,
+    includeScore: true,
+  });
+
+  const tokens = [
+    ...new Set(userPrompt.toLowerCase().split(/\W+/).filter((w) => w.length > 3)),
   ];
+
+  let best: { item: CapturedCharacter["guidelines"][number]; score: number } | null = null;
+  for (const token of tokens) {
+    const [top] = fuse.search(token);
+    if (top && (top.score ?? 1) < (best?.score ?? 1)) {
+      best = { item: top.item, score: top.score ?? 1 };
+    }
+  }
+
+  return best?.item ?? null;
 }
 
 async function downloadAsPng(url: string): Promise<Buffer | null> {
@@ -74,90 +84,6 @@ async function downloadAsPng(url: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
-}
-
-type ScoredGuideline = { gl: CapturedCharacter["guidelines"][number]; score: number };
-
-function scoreGuidelinesForChar(
-  char: CapturedCharacter,
-  tokens: string[],
-): ScoredGuideline[] {
-  const fuse = new Fuse(char.guidelines, {
-    keys: ["title", "description", "sample_analysis"],
-    threshold: 1,
-    includeScore: true,
-  });
-
-  const bestScores = new Map<number, number>();
-  for (const token of tokens) {
-    for (const match of fuse.search(token)) {
-      const idx = char.guidelines.indexOf(match.item);
-      const prev = bestScores.get(idx) ?? 1;
-      if ((match.score ?? 1) < prev) bestScores.set(idx, match.score ?? 1);
-    }
-  }
-
-  return char.guidelines
-    .map((gl, idx) => ({ gl, score: bestScores.get(idx) ?? 1 }))
-    .sort((a, b) => a.score - b.score);
-}
-
-async function downloadMatchedGuidelines(
-  charName: string,
-  matches: ScoredGuideline[],
-): Promise<Array<{ base64: string; mediaType: string; label: string }>> {
-  const results: Array<{ base64: string; mediaType: string; label: string }> = [];
-  for (const { gl } of matches) {
-    if (!gl.sample_image_url) continue;
-    const buf = await downloadAsPng(gl.sample_image_url);
-    if (!buf) {
-      console.log(`[BrandIllustrationAgent] fuzzySearch: failed to download guideline image for "${gl.title}"`);
-      continue;
-    }
-    results.push({
-      base64: buf.toString("base64"),
-      mediaType: "image/png",
-      label: `Guideline "${gl.title}" for character "${charName}"`,
-    });
-  }
-  return results;
-}
-
-async function fuzzyMatchGuidelineImages(
-  chars: CapturedCharacter[],
-  userPrompt: string,
-): Promise<Array<{ base64: string; mediaType: string; label: string }>> {
-  const results: Array<{ base64: string; mediaType: string; label: string }> = [];
-  const tokens = extractSearchTokens(userPrompt);
-
-  console.log("[BrandIllustrationAgent] fuzzySearch: query =", JSON.stringify(userPrompt));
-  console.log("[BrandIllustrationAgent] fuzzySearch: tokens =", tokens);
-  console.log(
-    "[BrandIllustrationAgent] fuzzySearch: characters with guidelines =",
-    chars.map((c) => ({
-      name: c.name,
-      guidelines: c.guidelines.map((g) => ({ title: g.title, hasSampleImage: !!g.sample_image_url })),
-    })),
-  );
-
-  for (const char of chars) {
-    if (char.guidelines.length === 0) continue;
-
-    const scored = scoreGuidelinesForChar(char, tokens);
-    console.log(
-      `[BrandIllustrationAgent] fuzzySearch: "${char.name}" best scores:`,
-      scored.map((s) => ({ title: s.gl.title, score: s.score, hasSampleImage: !!s.gl.sample_image_url })),
-    );
-
-    const matches = scored.filter(({ score }) => score <= 0.4);
-    console.log(`[BrandIllustrationAgent] fuzzySearch: "${char.name}" matched ${matches.length} guideline(s) at threshold 0.4`);
-
-    const downloaded = await downloadMatchedGuidelines(char.name, matches);
-    results.push(...downloaded);
-  }
-
-  console.log(`[BrandIllustrationAgent] fuzzySearch: ${results.length} guideline image(s) matched and downloaded.`);
-  return results;
 }
 
 function buildIllustrationPrompt(
@@ -199,13 +125,11 @@ function buildIllustrationPrompt(
  * Inner pipeline (LLM-orchestrated):
  *   fetch_brand_context
  *   → [fetch_character_references]   (if characters are mentioned)
- *   → generate_illustration           (builds prompt inline from brand context;
- *                                      uses fuse.js to find matching guideline images;
- *                                      image order: char ref → guideline → user sample)
+ *   → generate_illustration           (char ref images + user input images)
  *   → upload_illustration
  */
 export function createBrandIllustrationTool(
-  options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string; generationSettings?: GenerationSettings },
+  options?: { imageModel?: string; sampleImageUrls?: string[]; generationSettings?: GenerationSettings; previousImageSeedDetails?: string },
 ) {
   const toolDescription =
     "Generate an on-brand illustration or image from a user prompt. " +
@@ -223,8 +147,22 @@ export function createBrandIllustrationTool(
       // Build a fresh inner agent with per-invocation closure state
       const innerAgent = buildIllustrationAgent(options);
       console.log("[BrandIllustrationTool] inner agent created, invoking pipeline...");
+
+      // When editing a previous image, prepend its seed details so the inner
+      // LLM understands what was in the image before deciding tool calls.
+      let previousContextBody: string | undefined;
+      if (options?.previousImageSeedDetails) {
+        try {
+          previousContextBody = JSON.stringify(JSON.parse(options.previousImageSeedDetails), null, 2);
+        } catch {
+          previousContextBody = options.previousImageSeedDetails;
+        }
+      }
+      const previousContext = previousContextBody
+        ? `[Previous image context]\n${previousContextBody}\n\n[Edit request]\n`
+        : "";
       const result = await innerAgent.invoke({
-        messages: [new HumanMessage(user_request)],
+        messages: [new HumanMessage(`${previousContext}${user_request}`)],
       });
       console.log("[BrandIllustrationTool] inner agent finished | message count =", result.messages?.length ?? 0);
 
@@ -278,15 +216,11 @@ export function createBrandIllustrationTool(
 // capturedImageBuffer). Do NOT hoist this to module scope.
 // ---------------------------------------------------------------------------
 function buildIllustrationAgent(
-  options?: { imageModel?: string; sampleImageUrls?: string[]; userMessage?: string; generationSettings?: GenerationSettings },
+  options?: { imageModel?: string; sampleImageUrls?: string[]; generationSettings?: GenerationSettings; previousImageSeedDetails?: string },
 ) {
   const imageModel = options?.imageModel ?? options?.generationSettings?.model ?? "gpt-image-2";
   const genSettings = options?.generationSettings;
-  // The original user message is used verbatim as the scene prompt, bypassing
-  // any LLM rewriting of the user_prompt parameter.
-  const originalUserMessage = options?.userMessage ?? "";
-  // Pre-loaded sample URLs from the API call (chat attachments). These are
-  // merged with any sample_image_urls the LLM passes to generate_illustration.
+  // Pre-loaded sample URLs from the API call (chat attachments and the current preview image).
   const preloadedSampleUrls: string[] = options?.sampleImageUrls ?? [];
   const imageProvider = createImageProvider(imageModel);
 
@@ -294,6 +228,9 @@ function buildIllustrationAgent(
   let capturedContext: BrandIllustrationContext | null = null;
   const capturedCharacters: CapturedCharacter[] = [];
   let capturedImageBuffer: Buffer | null = null;
+  // Auto-generated description of the image — populated in generateIllustrationTool,
+  // read in uploadIllustrationTool, and stored alongside the storagePath in MongoDB.
+  let capturedSeedDetails = "";
 
   // ── Tool: fetch_brand_context ─────────────────────────────────────────────
 
@@ -351,22 +288,21 @@ function buildIllustrationAgent(
           continue;
         }
 
-        const guidelinesData = char.guidelines.map((g) => ({
+        const guidelines = char.guidelines.map((g) => ({
           title: g.title,
           description: g.description,
-          sample_analysis: g.sample_analysis ?? null,
           sample_image_url: g.sample_image_url,
         }));
 
         if (!char.reference_image_url) {
-          capturedCharacters.push({ name: char.name, base64: "", mediaType: "", guidelines: guidelinesData });
+          capturedCharacters.push({ name: char.name, base64: "", mediaType: "", guidelines });
           results.push(`"${name}": no reference image — character data loaded.`);
           continue;
         }
 
         const resp = await fetch(char.reference_image_url);
         if (!resp.ok) {
-          capturedCharacters.push({ name: char.name, base64: "", mediaType: "", guidelines: guidelinesData });
+          capturedCharacters.push({ name: char.name, base64: "", mediaType: "", guidelines });
           results.push(
             `"${name}": failed to download reference image (HTTP ${resp.status}) — character data loaded without image.`,
           );
@@ -381,7 +317,7 @@ function buildIllustrationAgent(
           name: char.name,
           base64: imgBuffer.toString("base64"),
           mediaType: "image/png",
-          guidelines: guidelinesData,
+          guidelines,
         });
 
         results.push(`"${name}": reference image loaded.`);
@@ -407,18 +343,14 @@ function buildIllustrationAgent(
     async ({
       user_prompt,
       character_names,
-      sample_image_urls,
     }: {
       user_prompt: string;
       character_names: string[];
-      sample_image_urls: string[];
     }) => {
       if (!capturedContext?.illustration) {
         throw new Error("fetch_brand_context must be called first.");
       }
 
-      // Always use the original user message verbatim; ignore LLM-provided value.
-      const scenePrompt = originalUserMessage || user_prompt;
       const ill = capturedContext.illustration;
       const brand = capturedContext.brand;
 
@@ -428,30 +360,33 @@ function buildIllustrationAgent(
 
       const charsWithImages = relevantChars.filter((c) => !!c.base64);
 
-      // Fuzzy-match character guidelines against the original user message.
-      const guidelineImages = await fuzzyMatchGuidelineImages(relevantChars, scenePrompt);
-
-      // Merge pre-loaded attachments with any LLM-provided URLs, deduplicating.
-      const allSampleUrls = [
-        ...preloadedSampleUrls,
-        ...sample_image_urls.filter((u) => !preloadedSampleUrls.includes(u)),
-      ];
+      // Download the single closest-matching guideline image per character
+      const charGuidelineImages: Array<{ base64: string; mediaType: string; charName: string; title: string }> = [];
+      for (const char of relevantChars) {
+        const gl = bestMatchingGuideline(char.guidelines, user_prompt);
+        const glLabel = gl ? `"${gl.title}"` : "none matched";
+        console.log(`[BrandIllustrationAgent] guideline for "${char.name}": ${glLabel}`);
+        if (!gl?.sample_image_url) continue;
+        const buf = await downloadAsPng(gl.sample_image_url);
+        if (buf) {
+          charGuidelineImages.push({ base64: buf.toString("base64"), mediaType: "image/png", charName: char.name, title: gl.title });
+        } else {
+          console.log(`[BrandIllustrationAgent] failed to download guideline image "${gl.title}" for "${char.name}"`);
+        }
+      }
 
       const sampleImages: Array<{ base64: string; mediaType: string }> = [];
-      for (const url of allSampleUrls) {
+      for (const url of preloadedSampleUrls) {
         const buf = await downloadAsPng(url);
         if (buf) sampleImages.push({ base64: buf.toString("base64"), mediaType: "image/png" });
       }
 
       console.log("[BrandIllustrationAgent] generate_illustration: image summary", {
-        originalUserMessage,
-        scenePrompt,
+        user_prompt,
         character_names,
-        preloadedSampleUrls,
-        llmSampleImageUrls: sample_image_urls,
-        allSampleUrls,
+        sampleImageUrls: preloadedSampleUrls,
         charsWithImages: charsWithImages.map((c) => c.name),
-        guidelineImagesCount: guidelineImages.length,
+        charGuidelineImagesCount: charGuidelineImages.length,
         sampleImagesDownloaded: sampleImages.length,
       });
       let imageIdx = 1;
@@ -459,32 +394,32 @@ function buildIllustrationAgent(
         ...charsWithImages.map(
           (c) => `Image ${imageIdx++}: Character reference for "${c.name}" — match appearance, colours, and proportions exactly.`,
         ),
-        ...guidelineImages.map(
-          (g) => `Image ${imageIdx++}: ${g.label} — follow this style guideline.`,
+        ...charGuidelineImages.map(
+          (g) => `Image ${imageIdx++}: Style guideline "${g.title}" for "${g.charName}" — follow this visual guideline.`,
         ),
         ...sampleImages.map(
-          () => `Image ${imageIdx++}: User direction sample — use for pose, scene, or composition inspiration only.`,
+          () => `Image ${imageIdx++}: User input image — use for pose, scene, or edit reference.`,
         ),
       ];
 
-      const fullPrompt = buildIllustrationPrompt(ill, brand, relevantChars, scenePrompt, imageLabels);
+      const fullPrompt = buildIllustrationPrompt(ill, brand, relevantChars, user_prompt, imageLabels);
 
-      // Build reference image list for the provider (order: char refs → guidelines → user samples)
+      // Reference images: char refs → char guideline images → user input images
       const referenceImages = [
         ...charsWithImages.map((c) => ({
           base64: c.base64,
           mediaType: c.mediaType,
           label: `Character reference for "${c.name}" — match appearance, colours, and proportions exactly.`,
         })),
-        ...guidelineImages.map((g) => ({
+        ...charGuidelineImages.map((g) => ({
           base64: g.base64,
           mediaType: g.mediaType,
-          label: g.label,
+          label: `Style guideline "${g.title}" for "${g.charName}" — follow this visual guideline.`,
         })),
         ...sampleImages.map((s) => ({
           base64: s.base64,
           mediaType: s.mediaType,
-          label: "User direction sample — use for pose, scene, or composition inspiration only.",
+          label: "User input image — use for pose, scene, or edit reference.",
         })),
       ];
 
@@ -495,13 +430,47 @@ function buildIllustrationAgent(
         referenceImageCount: referenceImages.length,
       });
 
-      capturedImageBuffer = await imageProvider.generate({
+      // ── DEBUG: full prompt and images sent to image generation AI ──────────
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("[BrandIllustrationAgent] DEBUG — inner agent system prompt:");
+      console.log(AGENT_INSTRUCTIONS);
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("[BrandIllustrationAgent] DEBUG — image generation prompt:");
+      console.log(fullPrompt);
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      console.log("[BrandIllustrationAgent] DEBUG — reference images passed to provider:");
+      referenceImages.forEach((img, i) => {
+        console.log(`  [${i + 1}/${referenceImages.length}] label="${img.label}" mediaType=${img.mediaType} base64Bytes=${img.base64.length}`);
+      });
+      if (referenceImages.length === 0) console.log("  (none)");
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      // ── END DEBUG ──────────────────────────────────────────────────────────
+
+      const charContext = relevantChars.length > 0
+        ? `\nCharacter names in this image: ${relevantChars.map((c) => c.name).join(", ")}. Use these exact names for the corresponding objects.`
+        : "";
+      const descriptionInstructions = `After generating the image, output ONLY a valid JSON object (no markdown fences, no explanation) describing exactly what you created. Follow this schema precisely:\n${SEED_DETAILS_SCHEMA_EXAMPLE}\n\nRules:\n- attributes and visual_style may each have at most 5 key/value pairs.\n- visual_style values may be a string or an array of hex colour strings.\n- Include one object entry per distinct character, animal, prop, and environment area.\n- Output ONLY valid JSON — no extra text before or after.${charContext}`;
+
+      const { buffer: imageBuffer, description: imageDescription } = await imageProvider.generate({
         prompt: fullPrompt,
         model: imageModel,
         quality: genSettings?.quality ?? "high",
         size: genSettings?.size === "auto" ? undefined : genSettings?.size,
         referenceImages,
+        descriptionInstructions,
       });
+      capturedImageBuffer = imageBuffer;
+      if (imageDescription) {
+        try {
+          const parsed = JSON.parse(imageDescription);
+          const validated = SeedDetailsSchema.safeParse(parsed);
+          capturedSeedDetails = validated.success
+            ? JSON.stringify(validated.data)
+            : imageDescription;
+        } catch {
+          capturedSeedDetails = imageDescription;
+        }
+      }
 
       return "Illustration generated successfully.";
     },
@@ -520,12 +489,6 @@ function buildIllustrationAgent(
           .default([])
           .describe(
             "Brand character names to include. Must match those loaded with fetch_character_references.",
-          ),
-        sample_image_urls: z
-          .array(z.string())
-          .default([])
-          .describe(
-            "URLs of images the user attached as direction or behaviour samples. These come after character reference images.",
           ),
       }),
     },
@@ -560,7 +523,7 @@ function buildIllustrationAgent(
         throw new Error(`Signed URL creation failed: ${signedError?.message}`);
       }
 
-      return JSON.stringify({ filename, signedUrl: signedData.signedUrl, storagePath });
+      return JSON.stringify({ filename, signedUrl: signedData.signedUrl, storagePath, seed_details: capturedSeedDetails });
     },
     {
       name: "upload_illustration",

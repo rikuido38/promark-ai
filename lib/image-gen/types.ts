@@ -27,8 +27,25 @@ export interface ImageGenerationRequest {
    * Providers that do not support reference images may ignore this field.
    */
   referenceImages?: ReferenceImage[];
+  /**
+   * Full instruction string appended to the prompt asking the orchestration
+   * model to describe the generated image. Providers that support text output
+   * alongside the image (e.g. OpenAI Responses API) will use this.
+   */
+  descriptionInstructions?: string;
+}
+
+export interface ImageGenerationResult {
+  /** Raw image bytes. */
+  buffer: Buffer;
+  /**
+   * AI-generated description of what is in the image — characters, objects,
+   * scene, colours, poses, etc. Populated by providers whose orchestration
+   * model can output text alongside the image in the same response.
+   */
+  description?: string;
 }
 
 export interface ImageGenerationProvider {
-  generate(req: ImageGenerationRequest): Promise<Buffer>;
+  generate(req: ImageGenerationRequest): Promise<ImageGenerationResult>;
 }

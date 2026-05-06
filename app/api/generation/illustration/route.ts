@@ -43,6 +43,11 @@ export async function POST(req: NextRequest) {
     const generationSettings: GenerationSettings | undefined =
       body.settings && typeof body.settings === "object" ? (body.settings as GenerationSettings) : undefined;
 
+    const previousImageSeedDetails: string | undefined =
+      typeof body.previousImageSeedDetails === "string" && body.previousImageSeedDetails.trim()
+        ? body.previousImageSeedDetails.trim()
+        : undefined;
+
     const db = await getDb();
     const org = await db
       .collection(COLLECTIONS.ORGANIZATIONS)
@@ -54,6 +59,7 @@ export async function POST(req: NextRequest) {
       imageModel,
       sampleImageUrls,
       generationSettings,
+      previousImageSeedDetails,
       forceTool: "generate_illustration",
     });
 
