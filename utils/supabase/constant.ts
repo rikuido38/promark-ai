@@ -17,5 +17,12 @@ export const TABLES = {
   STUDIO_THREAD_CHATS: "studio_thread_chats",
 } as const;
 
-/** MongoDB collection names — mirrors TABLES for the MongoDB layer. */
-export const COLLECTIONS = TABLES;
+/** MongoDB collection names — mirrors TABLES for the MongoDB layer, plus MongoDB-only collections. */
+export const COLLECTIONS = {
+  ...TABLES,
+  ASSETS: "assets",
+  ASSET_PERMISSIONS: "asset_permissions",
+  ASSET_VERSIONS: "asset_versions",
+  SHARE_LINKS: "share_links",
+  CASBIN_RULE: "casbin_rule",
+} as const;

@@ -53,6 +53,8 @@ export async function GET() {
 
 // ── POST /api/brand/context ───────────────────────────────────────────────────
 
+const COMPILE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
 export async function POST() {
   try {
     const user = await getUser();
@@ -62,34 +64,41 @@ export async function POST() {
 
     await setContextStatus("in_progress");
 
-    const { brand, illustration } = await fetchRawBrandSettings();
-    const storage = createStorageClient();
-    const signedUrls = await batchResolveSignedUrls(
-      storage,
-      collectImagePaths(illustration),
-      SUPABASE_BUCKET_NAME,
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("Context compilation timed out after 10 minutes")),
+        COMPILE_TIMEOUT_MS,
+      ),
     );
 
-    const { analyses } = await runBrandContextCompiler({
-      brand,
-      illustration,
-      signedUrls,
-    });
+    const compilePromise = (async () => {
+      const { brand, illustration } = await fetchRawBrandSettings();
+      const storage = createStorageClient();
+      const signedUrls = await batchResolveSignedUrls(
+        storage,
+        collectImagePaths(illustration),
+        SUPABASE_BUCKET_NAME,
+      );
 
-    const contextDoc = buildContextDocument(
-      brand,
-      illustration,
-      analyses,
-    );
-    await saveBrandContext(contextDoc);
+      const { analyses } = await runBrandContextCompiler({
+        brand,
+        illustration,
+        signedUrls,
+      });
 
-    const resolved = await getBrandContext();
+      const contextDoc = buildContextDocument(brand, illustration, analyses);
+      await saveBrandContext(contextDoc);
+
+      return getBrandContext();
+    })();
+
+    const resolved = await Promise.race([compilePromise, timeoutPromise]);
     return NextResponse.json({ success: true, context: resolved });
   } catch (error) {
     console.error("[POST /api/brand/context]", error);
     await setContextStatus("error").catch(() => {});
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: error instanceof Error ? error.message : "Internal Server Error" },
       { status: 500 },
     );
   }

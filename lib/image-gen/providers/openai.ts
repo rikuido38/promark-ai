@@ -45,6 +45,9 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
           ...(size && size !== "auto" ? { size } : {}),
         },
       ],
+      // Force the orchestration model's text output to be valid JSON when a
+      // description is requested. Without this the model may emit plain prose.
+      ...(descriptionInstructions ? { text: { format: { type: "json_object" } } } : {}),
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

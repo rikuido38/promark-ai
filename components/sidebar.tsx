@@ -9,7 +9,7 @@ export async function Sidebar() {
     .collection(COLLECTIONS.PROJECTS)
     .find({}, { projection: { _id: 1, name: 1, created_at: 1, updated_at: 1 } })
     .sort({ updated_at: -1 })
-    .limit(5)
+    .limit(3)
     .toArray();
 
   const projects = data.map((d) => ({ ...d, id: d._id?.toString() ?? "" })) as unknown as Project[];

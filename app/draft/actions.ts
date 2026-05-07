@@ -5,6 +5,7 @@ import { getDb } from "@/utils/mongodb/client";
 import { createStorageClient } from "@/utils/s3/storage";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
 import { COLLECTIONS } from "@/utils/supabase/constant";
+import { createAsset, deleteAsset, type AssetMediaType } from "@/utils/mongodb/assets";
 
 const PAGE_SIZE = 10;
 
@@ -26,8 +27,8 @@ export type FetchDraftsResult = {
 };
 
 /**
- * Cursor-paginated fetch of user drafts filtered by media type.
- * Pass `cursor` (an ISO created_at string) to fetch the next page.
+ * Cursor-paginated fetch of user-owned assets filtered by media type.
+ * Joins assets with their latest asset_version to get storage_path for signing.
  */
 export async function fetchDrafts(
   mediaType: DraftMediaType,
@@ -37,21 +38,40 @@ export async function fetchDrafts(
   if (!user) throw new Error("Unauthorized");
 
   const db = await getDb();
-  const filter: Record<string, unknown> = { media_type: mediaType };
+  const matchStage: Record<string, unknown> = {
+    created_by: user.id,
+    "context.type": "user",
+    media_type: mediaType,
+  };
   if (cursor) {
-    filter.created_at = { $lt: cursor };
+    matchStage.created_at = { $lt: cursor };
   }
 
+  // Join latest version to get storage_path
   const rows = await db
-    .collection(COLLECTIONS.USER_DRAFTS)
-    .find(filter)
-    .sort({ created_at: -1 })
-    .limit(PAGE_SIZE)
+    .collection(COLLECTIONS.ASSETS)
+    .aggregate([
+      { $match: matchStage },
+      { $sort: { created_at: -1 } },
+      { $limit: PAGE_SIZE },
+      {
+        $lookup: {
+          from: COLLECTIONS.ASSET_VERSIONS,
+          localField: "latest_version_id",
+          foreignField: "_id",
+          as: "version",
+        },
+      },
+      { $unwind: { path: "$version", preserveNullAndEmptyArrays: true } },
+    ])
     .toArray();
 
   if (rows.length === 0) return { items: [], nextCursor: null };
 
-  const paths = rows.map((r) => r.storage_path as string);
+  const paths = rows
+    .map((r) => r.version?.storage_path as string | undefined)
+    .filter((p): p is string => Boolean(p));
+
   const storage = createStorageClient();
   const { data: signedList, error: signedError } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
@@ -61,14 +81,17 @@ export async function fetchDrafts(
 
   const urlMap = new Map((signedList ?? []).map((s) => [s.path, s.signedUrl ?? ""]));
 
-  const items: DraftItem[] = rows.map((r) => ({
-    id: r._id?.toString() ?? "",
-    filename: r.filename as string,
-    storagePath: r.storage_path as string,
-    mediaType: r.media_type as DraftMediaType,
-    createdAt: r.created_at as string,
-    signedUrl: urlMap.get(r.storage_path as string) ?? "",
-  }));
+  const items: DraftItem[] = rows.map((r) => {
+    const storagePath = (r.version?.storage_path as string) ?? "";
+    return {
+      id: r._id?.toString() ?? "",
+      filename: r.filename as string,
+      storagePath,
+      mediaType: r.media_type as DraftMediaType,
+      createdAt: r.created_at as string,
+      signedUrl: urlMap.get(storagePath) ?? "",
+    };
+  });
 
   const nextCursor = rows.length === PAGE_SIZE ? (rows.at(-1)?.created_at as string ?? null) : null;
 
@@ -116,26 +139,18 @@ export async function saveDraft(
     throw new Error(`Failed to create signed URL: ${signedError?.message}`);
   }
 
-  const db = await getDb();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const draftsCol = db.collection(COLLECTIONS.USER_DRAFTS) as any;
-  const draftId = crypto.randomUUID();
-  const result = await draftsCol.insertOne({
-    _id: draftId,
-    org_id: DEFAULT_ORG_ID,
-    user_id: userId,
+  const asset = await createAsset({
+    name: newFilename,
     filename: newFilename,
+    media_type: mediaType as AssetMediaType,
+    org_id: DEFAULT_ORG_ID,
+    created_by: userId,
+    context: { type: "user", ref_id: userId },
     storage_path: destPath,
     source_path: storagePath,
-    media_type: mediaType,
-    created_at: new Date().toISOString(),
-  } );
+  });
 
-  if (!result.acknowledged) {
-    throw new Error("Failed to record draft");
-  }
-
-  return { draftId, signedUrl: signedData.signedUrl };
+  return { draftId: asset._id, signedUrl: signedData.signedUrl };
 }
 
 export async function deleteDraft(draftId: string): Promise<void> {
@@ -144,13 +159,27 @@ export async function deleteDraft(draftId: string): Promise<void> {
 
   const db = await getDb();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const col = db.collection(COLLECTIONS.USER_DRAFTS) as any;
-  const row = await col.findOne({ _id: draftId, user_id: user.id });
+  const asset = await (db.collection(COLLECTIONS.ASSETS) as any)
+    .findOne({ _id: draftId, created_by: user.id, "context.type": "user" });
 
-  if (!row) throw new Error("Draft not found or access denied");
+  if (!asset) throw new Error("Draft not found or access denied");
 
-  const storage = createStorageClient();
-  await storage.storage.from(SUPABASE_BUCKET_NAME).remove([row.storage_path as string]);
+  // Remove all version files from storage
+  const versions = await db
+    .collection(COLLECTIONS.ASSET_VERSIONS)
+    .find({ asset_id: draftId })
+    .toArray();
 
-  await col.deleteOne({ _id: draftId, user_id: user.id });
+  const paths = versions
+    .map((v) => v.storage_path as string | undefined)
+    .filter((p): p is string => Boolean(p));
+
+  if (paths.length > 0) {
+    const storage = createStorageClient();
+    await storage.storage.from(SUPABASE_BUCKET_NAME).remove(paths);
+  }
+
+  await deleteAsset(draftId);
 }
+
+

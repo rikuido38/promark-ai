@@ -1,0 +1,173 @@
+ GET /brand/brand-dna 200 in 240ms (next.js: 3ms, proxy.ts: 4ms, application-code: 234ms)
+ GET /api/brand/context 200 in 152ms (next.js: 6ms, proxy.ts: 8ms, application-code: 138ms)
+ GET /api/brand/context 200 in 136ms (next.js: 3ms, proxy.ts: 4ms, application-code: 130ms)
+ GET /api/brand/context 200 in 172ms (next.js: 5ms, proxy.ts: 6ms, application-code: 162ms)
+ GET /api/brand/context 200 in 159ms (next.js: 6ms, proxy.ts: 6ms, application-code: 146ms)
+ GET /api/brand/context 200 in 171ms (next.js: 5ms, proxy.ts: 7ms, application-code: 159ms)
+ GET /api/brand/context 200 in 163ms (next.js: 3ms, proxy.ts: 5ms, application-code: 155ms)
+ GET /api/brand/context 200 in 189ms (next.js: 3ms, proxy.ts: 5ms, application-code: 180ms)
+ GET /api/brand/context 200 in 125ms (next.js: 3ms, proxy.ts: 5ms, application-code: 117ms)
+ GET /api/brand/context 200 in 148ms (next.js: 1562µs, proxy.ts: 3ms, application-code: 143ms)
+ GET /api/brand/context 200 in 164ms (next.js: 5ms, proxy.ts: 7ms, application-code: 153ms)
+ GET /api/brand/context 200 in 150ms (next.js: 4ms, proxy.ts: 6ms, application-code: 139ms)
+ GET /api/brand/context 200 in 174ms (next.js: 5ms, proxy.ts: 9ms, application-code: 160ms)
+ GET /api/brand/context 200 in 175ms (next.js: 6ms, proxy.ts: 7ms, application-code: 163ms)
+ GET /api/brand/context 200 in 148ms (next.js: 5ms, proxy.ts: 6ms, application-code: 137ms)
+ POST /api/brand/context 200 in 74s (next.js: 4ms, proxy.ts: 8ms, application-code: 74s)
+ GET /studio/illustration 200 in 131ms (next.js: 38ms, proxy.ts: 9ms, application-code: 84ms)
+ POST /studio/illustration 200 in 296ms (next.js: 1531µs, proxy.ts: 210ms, application-code: 84ms)
+  └─ ƒ fetchDrafts("illustration") in 78ms app/draft/actions.ts
+ POST /studio/illustration 200 in 69ms (next.js: 2ms, proxy.ts: 3ms, application-code: 64ms)
+  └─ ƒ fetchDrafts("illustration") in 58ms app/draft/actions.ts
+ GET /studio/illustration 200 in 249ms (next.js: 3ms, proxy.ts: 4ms, application-code: 243ms)
+ POST /studio/illustration 200 in 59ms (next.js: 1952µs, proxy.ts: 4ms, application-code: 53ms)
+  └─ ƒ fetchDrafts("illustration") in 48ms app/draft/actions.ts
+ POST /studio/illustration 200 in 76ms (next.js: 6ms, proxy.ts: 6ms, application-code: 63ms)
+  └─ ƒ upsertStudioThread("92138f0f-71db-462e-977a-f3918745c764", "illustration", "Ah Bu as a doctor and Ah Girl as a nurse treating Ah Gong in a hospital ward room", "gpt-image-2") in 49ms app/studio/illustration/[id]/actions.ts
+[loadLastAssistantImages] threadId = 92138f0f-71db-462e-977a-f3918745c764 | row found = false | paths = []
+ GET /studio/illustration/92138f0f-71db-462e-977a-f3918745c764 200 in 587ms (next.js: 474ms, proxy.ts: 5ms, application-code: 108ms)
+ POST /studio/illustration/92138f0f-71db-462e-977a-f3918745c764 200 in 56ms (next.js: 5ms, proxy.ts: 6ms, application-code: 45ms)
+  └─ ƒ markNewChatDone("92138f0f-71db-462e-977a-f3918745c764") in 41ms app/studio/illustration/[id]/actions.ts
+ POST /studio/illustration/92138f0f-71db-462e-977a-f3918745c764 200 in 39ms (next.js: 1669µs, proxy.ts: 1555µs, application-code: 35ms)
+  └─ ƒ markNewChatDone("92138f0f-71db-462e-977a-f3918745c764") in 33ms app/studio/illustration/[id]/actions.ts
+ POST /studio/illustration/92138f0f-71db-462e-977a-f3918745c764 200 in 48ms (next.js: 4ms, proxy.ts: 3ms, application-code: 42ms)
+  └─ ƒ saveChatMessage("92138f0f-71db-462e-977a-f3918745c764", "user", "Ah Bu as a doctor and Ah Girl as a nurse treating Ah Gong in a hospital ward room") in 38ms app/studio/illustration/[id]/actions.ts
+[dotenv@17.3.1] injecting env (16) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+[MainAgent] runMainAgent: request {
+  sessionId: undefined,
+  forceTool: 'generate_illustration',
+  imageModel: 'gpt-image-2',
+  sampleImageUrls: [],
+  userMessage: 'Ah Bu as a doctor and Ah Girl as a nurse treating Ah Gong in a hospital ward room'
+}
+[MainAgent] tools = [ 'generate_illustration' ] | forceTool = generate_illustration
+[BrandIllustrationTool] invoked | user_request = Ah Bu as a doctor and Ah Girl as a nurse treating Ah Gong in a hospital ward room
+[BrandIllustrationTool] options = {"imageModel":"gpt-image-2","sampleImageUrls":[],"generationSettings":{"model":"gpt-image-2","quality":"medium","size":"auto","compression":85}}
+[BrandIllustrationTool] inner agent created, invoking pipeline...
+[BrandIllustrationAgent] guideline for "Ah Bu": "Doctor uniform"
+[BrandIllustrationAgent] guideline for "Ah Girl": none matched
+[BrandIllustrationAgent] guideline for "Ah Gong": none matched
+[BrandIllustrationAgent] generate_illustration: image summary {
+  user_prompt: 'Ah Bu as a doctor and Ah Girl as a nurse treating Ah Gong in a hospital ward room',
+  character_names: [ 'Ah Bu', 'Ah Girl', 'Ah Gong' ],
+  sampleImageUrls: [],
+  charsWithImages: [ 'Ah Bu', 'Ah Girl', 'Ah Gong' ],
+  charGuidelineImagesCount: 1,
+  sampleImagesDownloaded: 0
+}
+[BrandIllustrationAgent] generate_illustration: calling provider {
+  model: 'gpt-image-2',
+  quality: 'medium',
+  size: undefined,
+  referenceImageCount: 4
+}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationAgent] DEBUG — inner agent system prompt:
+You are a brand illustration specialist.
+Your job is to generate vector-style illustrations that precisely follow the brand's
+visual DNA — art style, colour palette, proportions, and character appearance.
+
+Steps you MUST follow in order:
+1. Call fetch_brand_context to load the compiled brand illustration context.
+   If it returns no context, stop and tell the user to compile brand context first.
+2. Read the user's request carefully. Identify any brand character names mentioned
+   (e.g. "Ah Gong", "Ah Ma") from the characters list in the returned context.
+3. If one or more brand characters are mentioned, call fetch_character_references
+   with those exact character names. These reference images pin exact facial
+   features, skin tones, colours, and proportions — they must NOT be altered.
+4. Call generate_illustration with:
+   - user_prompt: copy the user's message VERBATIM. Fix obvious typos only.
+     Do NOT add words, reframe the request, describe the character's role or appearance,
+     or insert any style, colour, composition, or brand guidance.
+     The illustration system handles all of that automatically.
+   - character_names: the exact names of brand characters to include
+     (must match those fetched in step 3; empty array if none)
+   - sample_image_urls: any image URLs the user attached to their message
+     (these are direction or behaviour reference samples, not character portraits)
+5. Call upload_illustration to save the result to storage.
+6. Your FINAL output MUST be ONLY the exact JSON string returned by
+   upload_illustration. No other text, explanation, or formatting.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationAgent] DEBUG — image generation prompt:
+Create a brand-consistent vector illustration.
+
+STYLE: Minimalist 2D flat vector illustration characterized by bold geometric abstraction. Forms are constructed using a synthesis of sharp angular shapes and sweeping curvilinear flow lines. High-contrast flat color blocking with clean, hard edges. Zero gradients, zero textures, and no 3D depth. The aesthetic prioritizes rhythmic line flow and simplified geometric silhouettes.
+BRAND PALETTE: Our illustration colour palette is an extension of our brand  colour palette, consisting of brand, neutral, and accent  colours. Tints of brand colours are used throughout our  illustrations to create a harmonious and cohesive visual  system. Our brand colours ensure our illustrations remain  consistent and on-brand.    Indoor and outdoor colours are available to create a range  of environmental settings, resulting in a more natural and  realistic feel. Skin tones help represent diverse demographics.  Accent colours serve as purposeful pops of colour to enhance  visual interest and elevate our brand illustrations
+COLOUR GUIDANCE: The palette is brand-led and highly structured: saturated warm red and deep royal blue anchor the system, balanced by neutral black, white, and cool grey. Tints are used systematically at 80–10%, creating softer supporting fills rather than transparency effects.
+
+Shadows are not simple darker versions of the same hue; they often shift warmer or toward brand colors. Sky Blue shadows move to a muted lavender-blue via a 30% blue mix, while Warm Light shadows become a pinkish blush from 30% red, adding cohesion. Skin shadows also lean red-brown rather than grey, keeping warmth and liveliness across tones.
+
+Accent colors are vivid mid&#x2F;high-saturation hues with paired darker companions for shadow use: orange&#x2F;pink use the dark reds, yellow shifts to a richer amber, and green to a deeper cooler green. This creates strong value contrast without breaking harmony.
+
+Overall harmony is split between warm analogous reds–oranges–yellows and cool blue neutrals, with brand red acting as the unifying shadow&#x2F;accent bridge.
+
+BRAND COLOURS:
+  Primary: #D52B1e, #212492
+  Secondary: #404040
+  Guidelines: Red should always be the colour that stands out the most, and red is always greater than blue. Regardless of black and white, the ratio of red should always be greater than blue. Please refer to the examples on the left as illustrated. 
+
+FACIAL COLOUR PALETTE (apply exactly for all characters):
+  Hair: #404040 (Hair base, only apply for elderly characters such as Ah Gong and Ah Ma), #404040 (Hair highlight, only apply for elderly characters such as Ah Gong and Ah Ma), #000000 (Hair base, default hair base and eyes for other characters), #404040 (Hair highlights, default hair base and eyes for other characters)
+  Skin tones: #FFBD8D (Base skin)
+  Shadows: #D52B1E
+  Facial features: #D52B1E (Nose, eyes, mouth, etc)
+
+OUTPUT REQUIREMENTS:
+  - PNG format with fully transparent background
+  - Strictly follow brand colour palette — do not introduce new colours
+  - Apply facial colour guidelines exactly as specified above
+  - Vector illustration aesthetic
+
+SCENE: Ah Bu as a doctor and Ah Girl as a nurse treating Ah Gong in a hospital ward room
+
+IMAGE REFERENCES:
+Image 1: Character reference for &quot;Ah Bu&quot; — match appearance, colours, and proportions exactly.
+Image 2: Character reference for &quot;Ah Girl&quot; — match appearance, colours, and proportions exactly.
+Image 3: Character reference for &quot;Ah Gong&quot; — match appearance, colours, and proportions exactly.
+Image 4: Style guideline &quot;Doctor uniform&quot; for &quot;Ah Bu&quot; — follow this visual guideline.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationAgent] DEBUG — reference images passed to provider:
+  [1/4] label="Character reference for "Ah Bu" — match appearance, colours, and proportions exactly." mediaType=image/png base64Bytes=80328
+  [2/4] label="Character reference for "Ah Girl" — match appearance, colours, and proportions exactly." mediaType=image/png base64Bytes=94832
+  [3/4] label="Character reference for "Ah Gong" — match appearance, colours, and proportions exactly." mediaType=image/png base64Bytes=97224
+  [4/4] label="Style guideline "Doctor uniform" for "Ah Bu" — follow this visual guideline." mediaType=image/png base64Bytes=540504
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[BrandIllustrationTool] inner agent finished | message count = 10
+[BrandIllustrationTool] upload result found | filename = 00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg | storagePath = temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg
+[MainAgent] currentTurnMsgs count = 4
+[MainAgent] raw.medias = [
+  {
+    filename: '00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg',
+    signedUrl: 'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260507%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260507T033447Z&X-Amz-Expires=3600&X-Amz-Signature=74d7c62b5eb7483795ddd7be22824325c50e72fb08a9157d0845ccce78727344&X-Amz-SignedHeaders=host&x-id=GetObject',
+    storagePath: 'temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg',
+    seed_details: 'Scene: Ah Bu as a doctor and Ah Girl as a nurse warmly care for Ah Gong resting in a hospital ward bed.\n' +
+      'Style: flat vector, geometric, bold; soft lighting; warm mood.\n' +
+      'Characters: Ah Bu, Ah Girl, Ah Gong.',
+    type: 'image'
+  }
+]
+[MainAgent] toolMedias = [
+  {
+    filename: '00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg',
+    signedUrl: 'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260507%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260507T033447Z&X-Amz-Expires=3600&X-Amz-Signature=74d7c62b5eb7483795ddd7be22824325c50e72fb08a9157d0845ccce78727344&X-Amz-SignedHeaders=host&x-id=GetObject',
+    type: 'image',
+    storagePath: 'temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg'
+  }
+]
+[MainAgent] mergedMedias = [
+  {
+    filename: '00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg',
+    signedUrl: 'https://promark-ai.s3.ap-southeast-1.amazonaws.com/temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIAV7THA2R7PR3MXQWD%2F20260507%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260507T033447Z&X-Amz-Expires=3600&X-Amz-Signature=74d7c62b5eb7483795ddd7be22824325c50e72fb08a9157d0845ccce78727344&X-Amz-SignedHeaders=host&x-id=GetObject',
+    storagePath: 'temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg',
+    seed_details: 'Scene: Ah Bu as a doctor and Ah Girl as a nurse warmly care for Ah Gong resting in a hospital ward bed.\n' +
+      'Style: flat vector, geometric, bold; soft lighting; warm mood.\n' +
+      'Characters: Ah Bu, Ah Girl, Ah Gong.',
+    type: 'image'
+  }
+]
+ POST /api/generation/illustration 200 in 109s (next.js: 283ms, proxy.ts: 1673µs, application-code: 108s)
+ POST /studio/illustration/92138f0f-71db-462e-977a-f3918745c764 200 in 58ms (next.js: 6ms, proxy.ts: 2ms, application-code: 50ms)
+  └─ ƒ saveChatMessage("92138f0f-71db-462e-977a-f3918745c764", "assistant", "<p>Done — I created the illustration of Ah Bu as a doctor and Ah Girl as a nurse treating Ah Gong in a hospital ward room.</p>", [{"seed_details":"Scene: Ah Bu as a doctor and Ah Girl as a nurse warmly care for Ah Gong resting in a hospital ward bed.\nStyle: flat vector, geometric, bold; soft lighting; warm mood.\nCharacters: Ah Bu, Ah Girl, Ah Gong.","storagePath":"temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg"}]) in 43ms app/studio/illustration/[id]/actions.ts
+ POST /studio/illustration/92138f0f-71db-462e-977a-f3918745c764 200 in 573ms (next.js: 8ms, proxy.ts: 5ms, application-code: 560ms)
+  └─ ƒ saveDraft("temp/default/00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg", "00b1a842-7fff-43d5-9471-79c44dae5f6c.jpg", "illustration") in 550ms app/draft/actions.ts

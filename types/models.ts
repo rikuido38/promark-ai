@@ -10,9 +10,27 @@ export interface Media {
   url: string;
 }
 
+export type ProjectRole = "owner" | "editor" | "viewer";
+
+export interface MemberEntry {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+  role: ProjectRole;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;
+  description?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -31,6 +49,7 @@ export interface Campaign {
 export interface ProjectUser {
   project_id: string;
   user_id: string;
+  role: ProjectRole;
   created_at: string | null;
 }
 
