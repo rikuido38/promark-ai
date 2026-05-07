@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MemberInvitePanel } from "@/components/ui/member-invite-dialog";
-import { createProject, searchUsers, type NewMember } from "./actions";
+import { createProject, searchUsers, type NewMember } from "@/app/project/actions";
 import type { MemberEntry, ProjectRole } from "@/types/models";
 
 export function NewProjectForm({ currentUserId }: { currentUserId: string }) {

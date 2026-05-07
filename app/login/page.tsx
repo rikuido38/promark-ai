@@ -1,33 +1,39 @@
-import { login, signup } from "./actions";
+import { redirect } from "next/navigation";
+import { getUser } from "@/utils/cognito/auth";
+import { login } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import Image from "next/image";
 
 export default async function LoginPage(props: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; goto?: string }>;
 }) {
   const searchParams = await props.searchParams;
+
+  const user = await getUser();
+  if (user) {
+    redirect(searchParams.goto ?? "/");
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted/40 px-4 py-12 sm:px-6 lg:px-8">
       <div className="grid grid-cols-1 gap-8">
         <div className="flex flex-col items-center justify-center">
           <Image
-            src="/promark-logo-label.svg"
+            src="/ge-master-logo.svg"
             alt="Promark AI Logo"
             width={250}
             height={20}
             className="object-contain"
           />
-          <p className="mt-2 text-center text-md text-muted-foreground">
+          <p className="mt-4 text-center text-sm text-muted-foreground">
             Accelerate personalized digital marketing with your AI campaign
             assistant
           </p>
@@ -42,6 +48,7 @@ export default async function LoginPage(props: {
           </CardHeader>
           <CardContent>
             <form action={login} className="space-y-4">
+              <input type="hidden" name="goto" value={searchParams.goto ?? ""} />
               <div className="space-y-2 relative">
                 <label
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
@@ -76,7 +83,7 @@ export default async function LoginPage(props: {
               <div className="mt-6 flex flex-col gap-2">
                 <Button
                   type="submit"
-                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  className="w-full hover:bg-blue-700"
                 >
                   Log In
                 </Button>

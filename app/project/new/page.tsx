@@ -3,7 +3,7 @@ import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { getUser } from "@/utils/cognito/auth";
-import { NewProjectForm } from "@/app/project/new-project";
+import { NewProjectForm } from "@/components/project/new-project-form";
 
 export default async function NewProjectPage() {
   const user = await getUser();

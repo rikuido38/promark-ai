@@ -13,6 +13,7 @@ import {
   Blocks,
   PenLine,
   FolderOpen,
+  FolderKanban,
   Sparkles,
 } from "lucide-react";
 import Image from "next/image";
@@ -91,8 +92,6 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
 
         {/* Nav Content */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden py-4 space-y-4">
-          {/* Projects — hidden for now */}
-
           {/* Your collection */}
           <div className={cn("px-3 pt-4")}>
             {collapsed ? (
@@ -119,15 +118,14 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
           </div>
 
           {/* Recent Projects */}
-          {recentProjects.length > 0 && (
-            <div className={cn("px-3 pt-4")}>
-              {!collapsed && (
-                <h2 className="mb-2 px-4 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                  Recent Projects
-                </h2>
-              )}
-              <div className="space-y-1">
-                {recentProjects.map((project) =>
+          <div className={cn("px-3 pt-4")}>
+            {!collapsed && (
+              <h2 className="mb-2 px-4 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                Recent Projects
+              </h2>
+            )}
+            <div className="space-y-1">
+              {recentProjects.map((project) =>
                   collapsed ? (
                     <Tooltip key={project.id}>
                       <TooltipTrigger>
@@ -151,9 +149,30 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
                     </Link>
                   ),
                 )}
-              </div>
+                {/* All projects */}
+                {collapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Link
+                        href="/project"
+                        className="flex items-center justify-center h-9 w-9 mx-auto rounded-md hover:bg-muted/50 transition-colors text-muted-foreground"
+                      >
+                        <FolderKanban className="h-4 w-4" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">All projects</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Link
+                    href="/project"
+                    className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <FolderKanban className="h-4 w-4 shrink-0" />
+                    <span className="truncate">All projects</span>
+                  </Link>
+                )}
             </div>
-          )}
+          </div>
 
           {/* Brand */}
           <div className={cn("px-3 pt-4")}>

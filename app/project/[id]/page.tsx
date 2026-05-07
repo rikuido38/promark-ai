@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import CampaignList from "./campaign-list";
-import { Sidebar } from "@/components/sidebar";
+import { ProjectSidebar } from "@/components/project/project-sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { COLLECTIONS } from "@/utils/supabase/constant";
@@ -48,7 +48,7 @@ export default async function ProjectPage(props: {
 
   return (
     <div className="flex h-screen bg-white">
-      <Sidebar />
+      <ProjectSidebar project={{ id: projectId, name: project.name as string }} activeItem="campaigns" />
       <div className="flex flex-col flex-1 overflow-hidden bg-slate-50/50">
         <Header />
 

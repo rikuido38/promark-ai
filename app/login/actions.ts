@@ -7,16 +7,18 @@ import { signIn, signOut } from "@/utils/cognito/auth";
 export async function login(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
+  const goto = (formData.get("goto") as string | null)?.trim() || "/";
 
   try {
     await signIn(email, password);
   } catch (err) {
     console.error("[login] Cognito error:", err);
-    redirect("/login?error=Wrong email or password");
+    const gotoParam = goto === "/" ? "" : `&goto=${encodeURIComponent(goto)}`;
+    redirect(`/login?error=Wrong email or password${gotoParam}`);
   }
 
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect(goto);
 }
 
 export async function signup(_formData: FormData) {

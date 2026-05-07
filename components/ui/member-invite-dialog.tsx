@@ -220,7 +220,7 @@ export function MemberInvitePanel({
                             {u.avatar_url && (
                               <AvatarImage src={u.avatar_url} alt={u.name} />
                             )}
-                            <AvatarFallback className="text-xs">
+                            <AvatarFallback className="text-xs bg-slate-200 text-slate-600">
                               {getInitials(u.name || u.email)}
                             </AvatarFallback>
                           </Avatar>
@@ -281,7 +281,7 @@ export function MemberInvitePanel({
                   {m.avatar_url && (
                     <AvatarImage src={m.avatar_url} alt={m.name} />
                   )}
-                  <AvatarFallback className="text-xs">
+                  <AvatarFallback className="text-xs bg-slate-200 text-slate-600">
                     {getInitials(m.name || m.email)}
                   </AvatarFallback>
                 </Avatar>
