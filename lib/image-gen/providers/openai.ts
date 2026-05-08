@@ -11,6 +11,7 @@
 
 import OpenAI from "openai";
 import type { ImageGenerationProvider, ImageGenerationRequest, ImageGenerationResult } from "../types";
+import logger from "@/lib/logger";
 
 const ORCHESTRATION_MODEL = "gpt-5.4";
 
@@ -26,6 +27,8 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
 
     const fullPrompt = descriptionInstructions ? `${prompt}\n\n${descriptionInstructions}` : prompt;
 
+    logger.debug({ promptLength: fullPrompt.length, prompt: fullPrompt }, "[OpenAIImageProvider] final prompt sent to AI");
+
     const inputContent: Array<Record<string, unknown>> = [
       { type: "input_text", text: fullPrompt },
       ...referenceImages.map((img) => ({
@@ -33,6 +36,17 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
         image_url: `data:${img.mediaType};base64,${img.base64}`,
       })),
     ];
+
+    logger.debug(
+      {
+        inputContent: inputContent.map((item, i) =>
+          item.type === "input_text"
+            ? { index: i, type: "input_text", chars: (item.text as string).length }
+            : { index: i, type: "input_image", label: referenceImages[i - 1]?.label, mediaType: referenceImages[i - 1]?.mediaType, base64Bytes: referenceImages[i - 1]?.base64.length },
+        ),
+      },
+      "[OpenAIImageProvider] inputContent order",
+    );
 
     const requestPayload = {
       model: ORCHESTRATION_MODEL,
@@ -63,7 +77,6 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
     // Extract text description output by the orchestration model in the same response
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const textOutput = output?.find((o: any) => o.type === "message");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const description: string | undefined = textOutput?.content
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ?.filter((c: any) => c.type === "output_text")

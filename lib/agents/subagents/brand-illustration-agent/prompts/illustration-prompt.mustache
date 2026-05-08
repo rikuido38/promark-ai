@@ -1,4 +1,10 @@
+{{#edit_context}}
+Edit the provided reference image to apply the requested change. Preserve all characters, scene composition, style, and colours exactly unless the change explicitly requires otherwise.
+Current scene: {{edit_context}}
+{{/edit_context}}
+{{^edit_context}}
 Create a brand-consistent vector illustration.
+{{/edit_context}}
 
 STYLE: {{style_description}}
 {{#palette_user_description}}
@@ -34,7 +40,7 @@ FACIAL COLOUR PALETTE (apply exactly for all characters):
 {{/facial_feature_colors}}
 
 OUTPUT REQUIREMENTS:
-  - PNG format with fully transparent background
+  - Place the entire illustration on a pure flat solid #00FF00 green background — no gradients, no shadows cast onto the background, no anti-aliasing blending with the background colour; the background must be a single uniform #00FF00 with zero variation
   - Strictly follow brand colour palette — do not introduce new colours
   - Apply facial colour guidelines exactly as specified above
   - Vector illustration aesthetic

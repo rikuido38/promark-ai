@@ -35,12 +35,6 @@ export interface AgentFactoryOptions {
   userMessage?: string;
   /** Generation settings from the chatbot settings dialog. */
   generationSettings?: GenerationSettings;
-  /**
-   * Seed details from the image currently shown in the preview panel.
-   * Passed to the inner illustration agent on edit requests so it understands
-   * the previous image (characters, colors, style) without needing full history.
-   */
-  previousImageSeedDetails?: string;
 }
 
 export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {

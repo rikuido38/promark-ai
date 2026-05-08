@@ -327,6 +327,12 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
                               "h-20 w-20 block rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                               media.signedUrl === currentMediaUrl && "ring-1 ring-red-500",
                             )}
+                            style={{
+                              backgroundImage: "linear-gradient(45deg, #d0d0d0 25%, transparent 25%), linear-gradient(-45deg, #d0d0d0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d0d0d0 75%), linear-gradient(-45deg, transparent 75%, #d0d0d0 75%)",
+                              backgroundSize: "10px 10px",
+                              backgroundPosition: "0 0, 0 5px, 5px -5px, -5px 0px",
+                              backgroundColor: "#ffffff",
+                            }}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -555,13 +561,23 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
       <Dialog open onOpenChange={() => setPreviewMedia(null)}>
         <DialogContent className="max-w-2xl p-2" showCloseButton>
           <DialogTitle className="sr-only">{previewMedia.filename}</DialogTitle>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={previewMedia.signedUrl}
-            alt={previewMedia.filename}
-            crossOrigin="anonymous"
-            className="w-full h-auto object-contain rounded-lg max-h-[80vh]"
-          />
+          <div
+            className="rounded-lg overflow-hidden"
+            style={{
+              backgroundImage: "linear-gradient(45deg, #d0d0d0 25%, transparent 25%), linear-gradient(-45deg, #d0d0d0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d0d0d0 75%), linear-gradient(-45deg, transparent 75%, #d0d0d0 75%)",
+              backgroundSize: "16px 16px",
+              backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+              backgroundColor: "#ffffff",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewMedia.signedUrl}
+              alt={previewMedia.filename}
+              crossOrigin="anonymous"
+              className="w-full h-auto object-contain max-h-[80vh]"
+            />
+          </div>
         </DialogContent>
       </Dialog>
     )}

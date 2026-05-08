@@ -1,7 +1,4 @@
 import { tool } from "@langchain/core/tools";
-import { createDeepAgent } from "deepagents";
-import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,8 +13,7 @@ import type { PaletteColor } from "@/types/settings";
 import type { GenerationSettings } from "@/types/generation-settings";
 import { getBrandContext } from "@/services/brand-context";
 import { createImageProvider } from "@/lib/image-gen/factory";
-
-const MODEL = "gpt-5.4";
+import logger from "@/lib/logger";
 
 // ── Prompt templates ─────────────────────────────────────────────────────────
 
@@ -27,12 +23,12 @@ function loadTemplate(filename: string): string {
   return readFileSync(join(PROMPTS_DIR, filename), "utf-8");
 }
 
-const AGENT_INSTRUCTIONS = Mustache.render(loadTemplate("agent-instructions.mustache"), {});
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type CapturedCharacter = {
   name: string;
+  age_group: string;
+  characteristics: string;
   base64: string;
   mediaType: string;
   guidelines: Array<{
@@ -86,12 +82,50 @@ async function downloadAsPng(url: string): Promise<Buffer | null> {
   }
 }
 
+/**
+ * Chroma-keys out the pure green (#00FF00) background the AI renders onto,
+ * producing a real RGBA-transparent PNG.
+ *
+ * Threshold: pixel is keyed when green channel dominates with comfortable
+ * margin over both red and blue — wide enough to absorb minor AI colour drift
+ * near the background while preserving green tones inside subjects.
+ */
+async function chromaKeyGreen(input: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height, channels } = info; // channels === 4
+  for (let i = 0; i < width * height; i++) {
+    const o = i * channels;
+    const r = data[o];
+    const g = data[o + 1];
+    const b = data[o + 2];
+    if (g > 180 && g > r + 30 && g > b + 30) {
+      data[o + 3] = 0;
+    }
+  }
+
+  return sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer();
+}
+
+function charRefLabel(c: CapturedCharacter): string {
+  const meta = c.characteristics ? `${c.age_group}, ${c.characteristics}` : c.age_group;
+  return (
+    `THIS IS THE MANDATORY FACE AND BODY REFERENCE FOR CHARACTER "${c.name}" (${meta}). ` +
+    `You MUST reproduce this character's exact face shape, facial features, body proportions, hair, skin tone, and colours faithfully. ` +
+    `Do NOT invent or substitute a different face or body — use only what is shown in this image for "${c.name}".`
+  );
+}
+
 function buildIllustrationPrompt(
   ill: NonNullable<BrandIllustrationContext["illustration"]>,
   brand: BrandIllustrationContext["brand"],
   _relevantChars: CapturedCharacter[],
   userPrompt: string,
   imageLabels: string[],
+  editContext?: string,
 ): string {
   const fp = ill.facial_colour_palette;
 
@@ -109,6 +143,7 @@ function buildIllustrationPrompt(
     user_prompt: userPrompt,
     has_image_labels: imageLabels.length > 0,
     image_labels: imageLabels,
+    edit_context: editContext || null,
   };
 
   // _relevantChars reserved for future use (character-specific prompt injection)
@@ -116,305 +151,198 @@ function buildIllustrationPrompt(
 }
 
 /**
- * Creates the Brand Illustration Tool bound to a Supabase client.
- *
- * Returns a LangChain StructuredTool that the main agent calls directly.
- * Internally, each invocation spins up a fresh per-request ReAct agent with
- * its own closure state so concurrent calls never interfere.
- *
- * Inner pipeline (LLM-orchestrated):
- *   fetch_brand_context
- *   → [fetch_character_references]   (if characters are mentioned)
- *   → generate_illustration           (char ref images + user input images)
- *   → upload_illustration
+ * Identifies brand character names mentioned in the user prompt by exact
+ * case-insensitive substring match. Reliable for proper nouns like "Ah Gong".
  */
-export function createBrandIllustrationTool(
-  options?: { imageModel?: string; sampleImageUrls?: string[]; generationSettings?: GenerationSettings; previousImageSeedDetails?: string },
-) {
-  const toolDescription =
-    "Generate an on-brand illustration or image from a user prompt. " +
-    "Use this whenever the user asks to create, generate, or draw an illustration, image, or visual.";
-
-  return tool(
-    async ({ user_request }: { user_request: string }) => {
-      console.log("[BrandIllustrationTool] invoked | user_request =", user_request);
-      console.log("[BrandIllustrationTool] options =", JSON.stringify({
-        imageModel: options?.imageModel,
-        sampleImageUrls: options?.sampleImageUrls,
-        generationSettings: options?.generationSettings,
-      }));
-
-      // Build a fresh inner agent with per-invocation closure state
-      const innerAgent = buildIllustrationAgent(options);
-      console.log("[BrandIllustrationTool] inner agent created, invoking pipeline...");
-
-      // When editing a previous image, prepend its seed details so the inner
-      // LLM understands what was in the image before deciding tool calls.
-      let previousContextBody: string | undefined;
-      if (options?.previousImageSeedDetails) {
-        try {
-          previousContextBody = JSON.stringify(JSON.parse(options.previousImageSeedDetails), null, 2);
-        } catch {
-          previousContextBody = options.previousImageSeedDetails;
-        }
-      }
-      const previousContext = previousContextBody
-        ? `[Previous image context]\n${previousContextBody}\n\n[Edit request]\n`
-        : "";
-      const result = await innerAgent.invoke({
-        messages: [new HumanMessage(`${previousContext}${user_request}`)],
-      });
-      console.log("[BrandIllustrationTool] inner agent finished | message count =", result.messages?.length ?? 0);
-
-      // Find the upload_illustration tool result which contains the signedUrl JSON.
-      // The outer main agent needs this JSON to populate medias[].
-      const messages: Array<{ content: unknown }> = result.messages ?? [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const uploadResult = [...messages].reverse().find((m: any) => {
-        if (typeof m._getType !== "function" || m._getType() !== "tool") return false;
-        const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-        try { return !!JSON.parse(content)?.signedUrl; } catch { return false; }
-      });
-      if (uploadResult) {
-        const content = typeof uploadResult.content === "string"
-          ? uploadResult.content
-          : JSON.stringify(uploadResult.content);
-        // Re-serialize to ensure the outer agent receives clean JSON with type hint
-        try {
-          const parsed = JSON.parse(content);
-          console.log("[BrandIllustrationTool] upload result found | filename =", parsed.filename, "| storagePath =", parsed.storagePath);
-          return JSON.stringify({ ...parsed, type: "image" });
-        } catch {
-          return content;
-        }
-      }
-      // Fallback: return the last AI message if no upload result found
-      console.warn("[BrandIllustrationTool] no upload result found in messages — returning last AI message");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lastAiMsg = [...messages].reverse().find((m: any) => {
-        return typeof m._getType === "function" && m._getType() === "ai";
-      });
-      return typeof lastAiMsg?.content === "string"
-        ? lastAiMsg.content
-        : JSON.stringify(lastAiMsg?.content ?? "Illustration pipeline complete.");
-    },
-    {
-      name: "generate_illustration",
-      description: toolDescription,
-      schema: z.object({
-        user_request: z
-          .string()
-          .describe("The user's illustration request, copied verbatim."),
-      }),
-    },
-  );
+function identifyCharactersInPrompt(
+  userPrompt: string,
+  characters: Array<{ name: string }>,
+): string[] {
+  const lower = userPrompt.toLowerCase();
+  return characters
+    .filter((c) => lower.includes(c.name.toLowerCase()))
+    .map((c) => c.name);
 }
 
-// ---------------------------------------------------------------------------
-// Inner agent builder — called fresh for every outer tool invocation so each
-// request gets isolated closure state (capturedContext, capturedCharacters,
-// capturedImageBuffer). Do NOT hoist this to module scope.
-// ---------------------------------------------------------------------------
-function buildIllustrationAgent(
-  options?: { imageModel?: string; sampleImageUrls?: string[]; generationSettings?: GenerationSettings; previousImageSeedDetails?: string },
+/**
+ * Downloads reference images and loads guidelines for the named characters.
+ */
+async function fetchCharacterData(
+  names: string[],
+  brandContext: BrandIllustrationContext,
+): Promise<CapturedCharacter[]> {
+  const allChars = brandContext.illustration?.characters ?? [];
+  const results: CapturedCharacter[] = [];
+
+  for (const name of names) {
+    const char = allChars.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    if (!char) continue;
+
+    const guidelines = char.guidelines.map((g) => ({
+      title: g.title,
+      description: g.description,
+      sample_image_url: g.sample_image_url,
+    }));
+
+    if (!char.reference_image_url) {
+      results.push({ name: char.name, age_group: char.age_group, characteristics: char.characteristics, base64: "", mediaType: "", guidelines });
+      continue;
+    }
+
+    const resp = await fetch(char.reference_image_url);
+    if (!resp.ok) {
+      results.push({ name: char.name, age_group: char.age_group, characteristics: char.characteristics, base64: "", mediaType: "", guidelines });
+      continue;
+    }
+
+    const imgBuffer = await sharp(Buffer.from(await resp.arrayBuffer())).png().toBuffer();
+    results.push({
+      name: char.name,
+      age_group: char.age_group,
+      characteristics: char.characteristics,
+      base64: imgBuffer.toString("base64"),
+      mediaType: "image/png",
+      guidelines,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Creates the Brand Illustration Tool.
+ *
+ * Returns a LangChain StructuredTool that the main agent calls directly.
+ * Runs a fully deterministic pipeline — no inner LLM or ReAct agent.
+ *
+ * Pipeline:
+ *   1. Fetch brand context
+ *   2. Resolve character names (scan prompt for "new"; use MainAgent-provided list for "edit")
+ *   3. Download character reference images
+ *   4. Build illustration prompt + reference image list
+ *   5. Call image provider
+ *   6. Compress + upload
+ */
+export function createBrandIllustrationTool(
+  options?: { imageModel?: string; sampleImageUrls?: string[]; generationSettings?: GenerationSettings },
 ) {
-  const imageModel = options?.imageModel ?? options?.generationSettings?.model ?? "gpt-image-2";
-  const genSettings = options?.generationSettings;
-  // Pre-loaded sample URLs from the API call (chat attachments and the current preview image).
-  const preloadedSampleUrls: string[] = options?.sampleImageUrls ?? [];
-  const imageProvider = createImageProvider(imageModel);
+  const toolDescription =
+    "Generate or edit an on-brand illustration. " +
+    "Use this whenever the user asks to create, generate, draw, or modify an illustration or image. " +
+    "Use request_type='new' for fresh illustrations and request_type='edit' when the user is " +
+    "refining or changing a previously generated image (i.e. there is a [Previous illustration context] " +
+    "section in the current message or the conversation shows a prior illustration was produced).";
 
-  // Per-invocation state shared across tool calls via closure.
-  let capturedContext: BrandIllustrationContext | null = null;
-  const capturedCharacters: CapturedCharacter[] = [];
-  let capturedImageBuffer: Buffer | null = null;
-  // Auto-generated description of the image — populated in generateIllustrationTool,
-  // read in uploadIllustrationTool, and stored alongside the storagePath in MongoDB.
-  let capturedSeedDetails = "";
+  return tool(
+    async ({
+      request_type,
+      user_prompt,
+      character_names,
+      previous_seed_details,
+    }: {
+      request_type: "new" | "edit";
+      user_prompt: string;
+      character_names: string[];
+      previous_seed_details?: string;
+    }) => {
+      const imageModel = options?.imageModel ?? options?.generationSettings?.model ?? "gpt-image-2";
+      const genSettings = options?.generationSettings;
+      const preloadedSampleUrls: string[] = options?.sampleImageUrls ?? [];
+      const imageProvider = createImageProvider(imageModel);
 
-  // ── Tool: fetch_brand_context ─────────────────────────────────────────────
+      logger.debug({ request_type, user_prompt }, "[BrandIllustrationTool] invoked");
+      logger.debug({ imageModel, sampleImageUrls: preloadedSampleUrls, generationSettings: genSettings }, "[BrandIllustrationTool] options");
 
-  const fetchBrandContextTool = tool(
-    async () => {
-      capturedContext = await getBrandContext();
-      if (!capturedContext) {
+      // ── Step 1: Brand context ──────────────────────────────────────────────
+      const brandContext = await getBrandContext();
+      if (!brandContext?.illustration) {
         throw new Error(
           "No compiled brand context found. Please compile brand context before generating illustrations.",
         );
       }
-      // Return only decision-making fields; heavy data stays in the closure.
-      return JSON.stringify({
-        characters: (capturedContext.illustration?.characters ?? []).map((c) => ({
-          name: c.name,
-          ageGroup: c.age_group,
-          hasReferenceImage: !!c.reference_image_url,
-          guidelineCount: c.guidelines.length,
-        })),
-        brand: {
-          primaryColors: capturedContext.brand.primary_colors,
-          secondaryColors: capturedContext.brand.secondary_colors,
-        },
-      });
-    },
-    {
-      name: "fetch_brand_context",
-      description:
-        "Load the compiled brand illustration context. Must be called first before any other tool.",
-      schema: z.object({}),
-    },
-  );
 
-  // ── Tool: fetch_character_references ─────────────────────────────────────
+      // ── Step 2: Resolve character names ───────────────────────────────────
+      // "new":  scan the user prompt against the brand character list — no LLM needed.
+      // "edit": MainAgent already extracted names from the previous seed details.
+      const resolvedNames =
+        request_type === "edit"
+          ? character_names
+          : identifyCharactersInPrompt(user_prompt, brandContext.illustration.characters ?? []);
+      logger.debug({ resolvedNames }, "[BrandIllustrationTool] resolved characters");
 
-  const fetchCharacterReferencesTool = tool(
-    async ({ character_names }: { character_names: string[] }) => {
-      if (!capturedContext) throw new Error("fetch_brand_context must be called first.");
+      // ── Step 3: Fetch character references ────────────────────────────────
+      const capturedCharacters = await fetchCharacterData(resolvedNames, brandContext);
 
-      const allChars = capturedContext.illustration?.characters ?? [];
-      const results: string[] = [];
-
-      for (const name of character_names) {
-        const char = allChars.find(
-          (c) => c.name.toLowerCase() === name.toLowerCase(),
-        );
-
-        if (!char) {
-          results.push(`"${name}": not found in brand context — skipped.`);
-          continue;
-        }
-
-        if (capturedCharacters.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-          results.push(`"${name}": already loaded.`);
-          continue;
-        }
-
-        const guidelines = char.guidelines.map((g) => ({
-          title: g.title,
-          description: g.description,
-          sample_image_url: g.sample_image_url,
-        }));
-
-        if (!char.reference_image_url) {
-          capturedCharacters.push({ name: char.name, base64: "", mediaType: "", guidelines });
-          results.push(`"${name}": no reference image — character data loaded.`);
-          continue;
-        }
-
-        const resp = await fetch(char.reference_image_url);
-        if (!resp.ok) {
-          capturedCharacters.push({ name: char.name, base64: "", mediaType: "", guidelines });
-          results.push(
-            `"${name}": failed to download reference image (HTTP ${resp.status}) — character data loaded without image.`,
-          );
-          continue;
-        }
-
-        const imgBuffer = await sharp(Buffer.from(await resp.arrayBuffer()))
-          .png()
-          .toBuffer();
-
-        capturedCharacters.push({
-          name: char.name,
-          base64: imgBuffer.toString("base64"),
-          mediaType: "image/png",
-          guidelines,
-        });
-
-        results.push(`"${name}": reference image loaded.`);
-      }
-
-      return results.join("\n");
-    },
-    {
-      name: "fetch_character_references",
-      description:
-        "Download reference images for named brand characters. Call when the user's request mentions specific brand characters. Reference images fix facial features, colours, and proportions for the illustration.",
-      schema: z.object({
-        character_names: z
-          .array(z.string())
-          .describe("Exact names of brand characters to fetch reference images for"),
-      }),
-    },
-  );
-
-  // ── Tool: generate_illustration ───────────────────────────────────────────
-
-  const generateIllustrationTool = tool(
-    async ({
-      user_prompt,
-      character_names,
-    }: {
-      user_prompt: string;
-      character_names: string[];
-    }) => {
-      if (!capturedContext?.illustration) {
-        throw new Error("fetch_brand_context must be called first.");
-      }
-
-      const ill = capturedContext.illustration;
-      const brand = capturedContext.brand;
-
-      const relevantChars = capturedCharacters.filter((c) =>
-        character_names.some((n) => n.toLowerCase() === c.name.toLowerCase()),
-      );
-
-      const charsWithImages = relevantChars.filter((c) => !!c.base64);
-
-      // Download the single closest-matching guideline image per character
-      const charGuidelineImages: Array<{ base64: string; mediaType: string; charName: string; title: string }> = [];
-      for (const char of relevantChars) {
+      // ── Step 4: Guideline images per character ────────────────────────────
+      const charGuidelineImages: Array<{
+        base64: string;
+        mediaType: string;
+        charName: string;
+        title: string;
+      }> = [];
+      for (const char of capturedCharacters) {
         const gl = bestMatchingGuideline(char.guidelines, user_prompt);
         const glLabel = gl ? `"${gl.title}"` : "none matched";
-        console.log(`[BrandIllustrationAgent] guideline for "${char.name}": ${glLabel}`);
+        logger.debug(`[BrandIllustrationAgent] guideline for "${char.name}": ${glLabel}`);
         if (!gl?.sample_image_url) continue;
         const buf = await downloadAsPng(gl.sample_image_url);
         if (buf) {
-          charGuidelineImages.push({ base64: buf.toString("base64"), mediaType: "image/png", charName: char.name, title: gl.title });
+          charGuidelineImages.push({
+            base64: buf.toString("base64"),
+            mediaType: "image/png",
+            charName: char.name,
+            title: gl.title,
+          });
         } else {
-          console.log(`[BrandIllustrationAgent] failed to download guideline image "${gl.title}" for "${char.name}"`);
+          logger.debug(`[BrandIllustrationAgent] failed to download guideline image "${gl.title}" for "${char.name}"`);
         }
       }
 
+      // ── Step 5: Sample / reference images ─────────────────────────────────
       const sampleImages: Array<{ base64: string; mediaType: string }> = [];
       for (const url of preloadedSampleUrls) {
         const buf = await downloadAsPng(url);
         if (buf) sampleImages.push({ base64: buf.toString("base64"), mediaType: "image/png" });
       }
 
-      console.log("[BrandIllustrationAgent] generate_illustration: image summary", {
-        user_prompt,
-        character_names,
-        sampleImageUrls: preloadedSampleUrls,
-        charsWithImages: charsWithImages.map((c) => c.name),
-        charGuidelineImagesCount: charGuidelineImages.length,
-        sampleImagesDownloaded: sampleImages.length,
-      });
+      // ── Step 6: Extract edit context ──────────────────────────────────────
+      // For edits, pull the scene description from the previous seed details so the
+      // illustration prompt can explicitly state what's already in the image.
+      let editContext: string | undefined;
+      if (request_type === "edit" && previous_seed_details) {
+        try {
+          const parsed = JSON.parse(previous_seed_details) as { scene?: { description?: string } };
+          editContext = parsed?.scene?.description ?? undefined;
+        } catch {
+          // not parseable — leave editContext undefined
+        }
+      }
+
+      // ── Step 7: Build image prompt & reference image list ─────────────────
+      const ill = brandContext.illustration;
+      const brand = brandContext.brand;
+      const charsWithImages = capturedCharacters.filter((c) => !!c.base64);
       let imageIdx = 1;
       const imageLabels: string[] = [
-        ...charsWithImages.map(
-          (c) => `Image ${imageIdx++}: Character reference for "${c.name}" — match appearance, colours, and proportions exactly.`,
-        ),
+        ...charsWithImages.map((c) => `Image ${imageIdx++}: ${charRefLabel(c)}`),
         ...charGuidelineImages.map(
-          (g) => `Image ${imageIdx++}: Style guideline "${g.title}" for "${g.charName}" — follow this visual guideline.`,
+          (g) => `Image ${imageIdx++}: MANDATORY COSTUME/ATTIRE REFERENCE for "${g.charName}" — "${g.title}". You MUST dress "${g.charName}" in this exact uniform, outfit, and accessories as shown. Do NOT change or omit any clothing element depicted here.`,
         ),
         ...sampleImages.map(
           () => `Image ${imageIdx++}: User input image — use for pose, scene, or edit reference.`,
         ),
       ];
 
-      const fullPrompt = buildIllustrationPrompt(ill, brand, relevantChars, user_prompt, imageLabels);
-
-      // Reference images: char refs → char guideline images → user input images
       const referenceImages = [
         ...charsWithImages.map((c) => ({
           base64: c.base64,
           mediaType: c.mediaType,
-          label: `Character reference for "${c.name}" — match appearance, colours, and proportions exactly.`,
+          label: charRefLabel(c),
         })),
         ...charGuidelineImages.map((g) => ({
           base64: g.base64,
           mediaType: g.mediaType,
-          label: `Style guideline "${g.title}" for "${g.charName}" — follow this visual guideline.`,
+          label: `MANDATORY COSTUME/ATTIRE REFERENCE for "${g.charName}" — "${g.title}". You MUST dress "${g.charName}" in this exact uniform, outfit, and accessories as shown. Do NOT change or omit any clothing element depicted here.`,
         })),
         ...sampleImages.map((s) => ({
           base64: s.base64,
@@ -423,32 +351,41 @@ function buildIllustrationAgent(
         })),
       ];
 
-      console.log("[BrandIllustrationAgent] generate_illustration: calling provider", {
-        model: imageModel,
-        quality: genSettings?.quality ?? "high",
-        size: genSettings?.size === "auto" ? undefined : genSettings?.size,
-        referenceImageCount: referenceImages.length,
-      });
+      const fullPrompt = buildIllustrationPrompt(ill, brand, capturedCharacters, user_prompt, imageLabels, editContext);
 
-      // ── DEBUG: full prompt and images sent to image generation AI ──────────
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("[BrandIllustrationAgent] DEBUG — inner agent system prompt:");
-      console.log(AGENT_INSTRUCTIONS);
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("[BrandIllustrationAgent] DEBUG — image generation prompt:");
-      console.log(fullPrompt);
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      console.log("[BrandIllustrationAgent] DEBUG — reference images passed to provider:");
-      referenceImages.forEach((img, i) => {
-        console.log(`  [${i + 1}/${referenceImages.length}] label="${img.label}" mediaType=${img.mediaType} base64Bytes=${img.base64.length}`);
-      });
-      if (referenceImages.length === 0) console.log("  (none)");
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      // ── END DEBUG ──────────────────────────────────────────────────────────
+      // ── Debug logging ──────────────────────────────────────────────────────
+      logger.debug(
+        {
+          user_prompt,
+          request_type,
+          resolvedCharacterNames: resolvedNames,
+          sampleImageUrls: preloadedSampleUrls,
+          charsWithImages: charsWithImages.map((c) => c.name),
+          charGuidelineImagesCount: charGuidelineImages.length,
+          sampleImagesDownloaded: sampleImages.length,
+        },
+        "[BrandIllustrationAgent] image summary",
+      );
+      logger.debug(
+        {
+          model: imageModel,
+          quality: genSettings?.quality ?? "high",
+          size: genSettings?.size === "auto" ? undefined : genSettings?.size,
+          referenceImageCount: referenceImages.length,
+        },
+        "[BrandIllustrationAgent] calling provider",
+      );
+      logger.debug({ prompt: fullPrompt }, "[BrandIllustrationAgent] image generation prompt");
+      logger.debug(
+        { images: referenceImages.map((img, i) => ({ index: i + 1, label: img.label, mediaType: img.mediaType, base64Bytes: img.base64.length })) },
+        "[BrandIllustrationAgent] reference images passed to provider",
+      );
 
-      const charContext = relevantChars.length > 0
-        ? `\nCharacter names in this image: ${relevantChars.map((c) => c.name).join(", ")}. Use these exact names for the corresponding objects.`
-        : "";
+      // ── Step 8: Generate ───────────────────────────────────────────────────
+      const charContext =
+        capturedCharacters.length > 0
+          ? `\nCharacter names in this image: ${capturedCharacters.map((c) => c.name).join(", ")}. Use these exact names for the corresponding objects.`
+          : "";
       const descriptionInstructions = `After generating the image, output ONLY a valid JSON object (no markdown fences, no explanation) describing exactly what you created. Follow this schema precisely:\n${SEED_DETAILS_SCHEMA_EXAMPLE}\n\nRules:\n- attributes and visual_style may each have at most 5 key/value pairs.\n- visual_style values may be a string or an array of hex colour strings.\n- Include one object entry per distinct character, animal, prop, and environment area.\n- Output ONLY valid JSON — no extra text before or after.${charContext}`;
 
       const { buffer: imageBuffer, description: imageDescription } = await imageProvider.generate({
@@ -459,90 +396,79 @@ function buildIllustrationAgent(
         referenceImages,
         descriptionInstructions,
       });
-      capturedImageBuffer = imageBuffer;
+
+      // ── Step 9: Validate and store seed details ────────────────────────────
+      let capturedSeedDetails = "";
       if (imageDescription) {
         try {
           const parsed = JSON.parse(imageDescription);
           const validated = SeedDetailsSchema.safeParse(parsed);
-          capturedSeedDetails = validated.success
-            ? JSON.stringify(validated.data)
-            : imageDescription;
+          capturedSeedDetails = validated.success ? JSON.stringify(validated.data) : imageDescription;
         } catch {
           capturedSeedDetails = imageDescription;
         }
       }
 
-      return "Illustration generated successfully.";
-    },
-    {
-      name: "generate_illustration",
-      description:
-        "Generate the on-brand vector illustration. Must be called after fetch_brand_context (and fetch_character_references if characters are requested).",
-      schema: z.object({
-        user_prompt: z
-          .string()
-          .describe(
-            "The user's message copied verbatim (typo fixes only). Do NOT rewrite, expand, or add any character descriptions, roles, style instructions, or composition details.",
-          ),
-        character_names: z
-          .array(z.string())
-          .default([])
-          .describe(
-            "Brand character names to include. Must match those loaded with fetch_character_references.",
-          ),
-      }),
-    },
-  );
-
-  // ── Tool: upload_illustration ─────────────────────────────────────────────
-
-  const uploadIllustrationTool = tool(
-    async () => {
-      if (!capturedImageBuffer) throw new Error("generate_illustration must be called first.");
-
-      const compression = genSettings?.compression ?? 85;
-      const compressed = await sharp(capturedImageBuffer).jpeg({ quality: compression }).toBuffer();
-      const contentType = "image/jpeg";
-      const ext = "jpg";
-
-      const filename = `${crypto.randomUUID()}.${ext}`;
+      // ── Step 10: Chroma-key green background → transparent PNG and upload ─
+      const transparentPng = await chromaKeyGreen(imageBuffer);
+      const filename = `${crypto.randomUUID()}.png`;
       const storagePath = `temp/${DEFAULT_ORG_ID}/${filename}`;
-
       const storage = createStorageClient();
       const { error: uploadError } = await storage.storage
         .from(SUPABASE_BUCKET_NAME)
-        .upload(storagePath, compressed, { contentType, upsert: false });
+        .upload(storagePath, transparentPng, { contentType: "image/png", upsert: false });
 
       if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
 
       const { data: signedData, error: signedError } = await storage.storage
         .from(SUPABASE_BUCKET_NAME)
         .createSignedUrl(storagePath, 60 * 60);
-
       if (signedError || !signedData?.signedUrl) {
         throw new Error(`Signed URL creation failed: ${signedError?.message}`);
       }
 
-      return JSON.stringify({ filename, signedUrl: signedData.signedUrl, storagePath, seed_details: capturedSeedDetails });
+      logger.debug({ filename, storagePath }, "[BrandIllustrationTool] upload complete");
+      return JSON.stringify({
+        filename,
+        signedUrl: signedData.signedUrl,
+        storagePath,
+        seed_details: capturedSeedDetails,
+        type: "image",
+      });
     },
     {
-      name: "upload_illustration",
-      description:
-        "Compress and upload the final illustration to storage, then return a signed URL. Always call this as the last step.",
-      schema: z.object({}),
+      name: "generate_illustration",
+      description: toolDescription,
+      schema: z.object({
+        request_type: z
+          .enum(["new", "edit"])
+          .describe(
+            "'new' = fresh illustration with no prior generated image. " +
+            "'edit' = the user is modifying a previously generated image.",
+          ),
+        user_prompt: z
+          .string()
+          .describe("The user's illustration or edit instruction, copied verbatim (typo fixes only)."),
+        character_names: z
+          .array(z.string())
+          .default([])
+          .describe(
+            "Brand character names to include. " +
+            "Identify from the current user message and conversation history — which brand characters has the user " +
+            "requested, or were shown in the previous illustration? " +
+            "For 'new': scan the user prompt for character names. " +
+            "For 'edit': use the characters from the previous turn (conversation history or the [Previous illustration context] section). " +
+            "Leave empty only if no brand characters are involved.",
+          ),
+        previous_seed_details: z
+          .string()
+          .optional()
+          .describe(
+            "For 'edit' only: the JSON from the [Previous illustration context] section, copied verbatim. Provides scene context for the edit.",
+          ),
+      }),
     },
   );
-
-  // ── Build inner deep agent ────────────────────────────────────────────────
-
-  return createDeepAgent({
-    model: new ChatOpenAI({ model: MODEL, temperature: 0 }),
-    tools: [
-      fetchBrandContextTool,
-      fetchCharacterReferencesTool,
-      generateIllustrationTool,
-      uploadIllustrationTool,
-    ],
-    systemPrompt: AGENT_INSTRUCTIONS,
-  });
 }
+
+

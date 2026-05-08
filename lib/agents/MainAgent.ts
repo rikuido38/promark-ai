@@ -101,8 +101,9 @@ export interface RunMainAgentOptions {
   generationSettings?: GenerationSettings;
   /**
    * Seed details from the image currently shown in the preview panel.
-   * Forwarded to the inner illustration agent on edit requests so it understands
-   * what was in the previous image without needing full conversation history.
+   * Prepended to the MainAgent's message as [Previous illustration context] so
+   * MainAgent can extract character names and call generate_illustration correctly
+   * for edit requests. Not forwarded to subagent tools directly.
    */
   previousImageSeedDetails?: string;
 }
@@ -145,7 +146,7 @@ export async function runMainAgent(
     userMessage,
   });
 
-  const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage, generationSettings, previousImageSeedDetails };
+  const agentOptions: AgentFactoryOptions = { imageModel, sampleImageUrls, userMessage, generationSettings };
 
   const sessionId = getOrCreateSession(incomingId ?? randomUUID());
 
@@ -174,8 +175,14 @@ export async function runMainAgent(
     checkpointer,
   });
 
+  // When editing a previously generated image, prepend its seed details so
+  // MainAgent can extract character names and pass them explicitly to the tool.
+  const previousContext = previousImageSeedDetails
+    ? `[Previous illustration context]\n${previousImageSeedDetails}\n\n[User request]\n`
+    : "";
+
   const result = await agent.invoke(
-    { messages: [new HumanMessage(userMessage)] },
+    { messages: [new HumanMessage(`${previousContext}${userMessage}`)] },
     { configurable: { thread_id: sessionId } },
   );
 
