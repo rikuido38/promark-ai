@@ -18,19 +18,13 @@ import {
   Check,
   Circle as CircleIcon,
   Crop,
-  Download,
   Loader2,
   MousePointer2,
-  RefreshCw,
-  RotateCcw,
-  Send,
   Square,
-  Trash2,
   Type,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,6 +57,7 @@ type FabricCanvas = {
   centerObject: (obj: FabricObj) => void;
   renderAll: () => void;
   dispose: () => void;
+  setDimensions: (dims: { width?: number; height?: number }) => void;
   toDataURL: (opts?: { format?: string; multiplier?: number }) => string;
   getElement: () => HTMLCanvasElement;
   on: (event: string, handler: (e: MouseDownEvent) => void) => void;
@@ -107,7 +102,6 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
   const [mode, setMode] = useState<EditorMode>("select");
   const [isReady, setIsReady] = useState(false);
   const [hasCropRect, setHasCropRect] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
 
   // ── Canvas init ─────────────────────────────────────────────────────────────
   // Measure the container via ResizeObserver so the canvas fills 100% of the
@@ -136,11 +130,33 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
       if (!destroyed) setIsReady(true);
     };
 
+    const resize = (w: number, h: number) => {
+      const c = fabricRef.current;
+      if (!c) return;
+      c.setDimensions({ width: w, height: h });
+      c.getObjects()
+        .filter((o) => o._isBgImage)
+        .forEach((o) => {
+          const iw = o.width ?? w;
+          const ih = o.height ?? h;
+          const scale = Math.min(w / iw, h / ih, 1);
+          o.set({ scaleX: scale, scaleY: scale });
+          c.centerObject(o);
+        });
+      c.renderAll();
+    };
+
+    let initialized = false;
     const ro = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
-      if (rect && rect.width > 0 && rect.height > 0) {
-        ro.disconnect();
-        void init(Math.floor(rect.width), Math.floor(rect.height));
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const w = Math.floor(rect.width);
+      const h = Math.floor(rect.height);
+      if (initialized) {
+        resize(w, h);
+      } else {
+        initialized = true;
+        void init(w, h);
       }
     });
     ro.observe(outerRef.current);
@@ -152,7 +168,7 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
       fabricRef.current = null;
       fmRef.current = null;
     };
-  }, [imageUrl, reloadKey]);
+  }, [imageUrl]);
 
   // ── Cursor + mousedown for add-object modes ──────────────────────────────────
   useEffect(() => {
@@ -355,47 +371,6 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
     canvas.renderAll();
   };
 
-  // ── Reset all overlays ────────────────────────────────────────────────────────
-  const handleReset = () => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    canvas.getObjects().filter((o) => !o._isBgImage).forEach((o) => canvas.remove(o));
-    cropRectRef.current = null;
-    setHasCropRect(false);
-    canvas.discardActiveObject();
-    canvas.renderAll();
-    setMode("select");
-  };
-
-  // ── Export ────────────────────────────────────────────────────────────────────
-  const handleExport = (download: boolean) => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-
-    // Temporarily hide crop rect so it isn't baked into the export
-    const cr = cropRectRef.current;
-    if (cr) cr.set({ visible: false });
-    canvas.discardActiveObject();
-    canvas.renderAll();
-
-    const dataUrl = canvas.toDataURL({ format: "png", multiplier: 1 });
-
-    if (cr) {
-      cr.set({ visible: true });
-      canvas.renderAll();
-    }
-
-    if (download) {
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = "illustration.png";
-      a.click();
-    } else {
-      onExportBase64?.(dataUrl);
-      toast.success("Edited image sent to AI chat");
-    }
-  };
-
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className={cn("flex flex-col h-full", className)}>
@@ -430,39 +405,6 @@ export function ImageEditor({ imageUrl, onExportBase64, className }: ImageEditor
           </Button>
         )}
 
-        <ToolBtn onClick={deleteSelected} title="Delete selected (Del)">
-          <Trash2 className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn onClick={handleReset} title="Clear all overlays">
-          <RotateCcw className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn onClick={() => setReloadKey((k) => k + 1)} title="Reload image">
-          <RefreshCw className="h-4 w-4" />
-        </ToolBtn>
-
-        <div className="flex-1" />
-
-        {/* Export actions */}
-        {onExportBase64 && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs px-2 gap-1"
-            onClick={() => handleExport(false)}
-          >
-            <Send className="h-3 w-3" />
-            Send to AI
-          </Button>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 text-xs px-2 gap-1"
-          onClick={() => handleExport(true)}
-        >
-          <Download className="h-3 w-3" />
-          Download
-        </Button>
       </div>
 
       {/* Canvas area — fills all available space, checkered bg for transparent images */}

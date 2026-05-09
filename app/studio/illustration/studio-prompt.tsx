@@ -31,7 +31,7 @@ import {
   type GenerationSettings,
 } from "@/types/generation-settings";
 import { uploadChatAttachmentClient, type UploadAttachmentResult } from "@/app/actions/upload-attachment-client";
-import { upsertStudioThread } from "@/app/studio/illustration/[id]/actions";
+import { createAssetAndThread } from "@/app/studio/illustration/[id]/actions";
 import { toast } from "sonner";
 
 const ILLUSTRATION_MODELS = ["gpt-image-2", "gpt-image-1.5"];
@@ -92,15 +92,13 @@ export function StudioPrompt() {
 __IMG_REFS__
 ${attachments.map((a) => a.signedUrl).join("\n")}`
         : trimmed;
-    const threadId = crypto.randomUUID();
+    const assetId = crypto.randomUUID();
     setSubmitting(true);
     setValue("");
     setAttachments([]);
     try {
-      // Store full message (with attachment URLs) as the prompt so the thread
-      // auto-sends it with images on load, but display only the clean text.
-      await upsertStudioThread(threadId, "illustration", messageWithAttachments, selectedModel || undefined);
-      router.push(`/studio/illustration/${threadId}`);
+      await createAssetAndThread(assetId, "illustration", messageWithAttachments, selectedModel || undefined);
+      router.push(`/studio/illustration/${assetId}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create thread.");
       setSubmitting(false);

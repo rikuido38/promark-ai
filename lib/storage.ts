@@ -12,6 +12,10 @@ export interface StorageClientLike {
         paths: string[],
         expiresIn: number,
       ): Promise<{ data: { path: string; signedUrl: string }[] | null; error: { message: string } | null }>;
+      copy(
+        from: string,
+        to: string,
+      ): Promise<{ data: { path: string } | null; error: { message: string } | null }>;
       move(
         from: string,
         to: string,

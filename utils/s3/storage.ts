@@ -117,6 +117,21 @@ function bucketOperations(bucket: string) {
       }
     },
 
+    async copy(fromPath: string, toPath: string) {
+      try {
+        await getS3Client().send(
+          new CopyObjectCommand({
+            Bucket: bucket,
+            CopySource: encodeURIComponent(`${bucket}/${fromPath}`),
+            Key: toPath,
+          }),
+        );
+        return { data: { path: toPath }, error: null };
+      } catch (e) {
+        return { data: null, error: { message: String(e) } };
+      }
+    },
+
     async move(fromPath: string, toPath: string) {
       try {
         await getS3Client().send(

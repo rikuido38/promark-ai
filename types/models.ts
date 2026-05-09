@@ -136,3 +136,99 @@ export interface UserIntegration {
   created_at: string | null;
   updated_at: string | null;
 }
+
+// ── Studio assets ─────────────────────────────────────────────────────────────
+
+/** Matches the `type` field stored on Asset documents. */
+export type AssetType = "illustration" | "image" | "video";
+export type AssetContextType = "user" | "project" | "campaign";
+
+/**
+ * MongoDB `assets` collection document.
+ * `_id` is a UUID string (not an ObjectId).
+ * `thread_id` equals `_id` for all assets (set at creation or backfilled).
+ */
+export interface Asset {
+  /** UUID string — also used as the URL route param and equals `thread_id`. */
+  _id: string;
+  type: AssetType;
+  /** Internal LangGraph / chat thread ID. Always equals `_id`. */
+  thread_id: string;
+  name?: string;
+  filename?: string;
+  org_id?: string;
+  context?: { type: AssetContextType; ref_id: string | null };
+  visibility?: "private" | "org" | "public";
+  tags?: string[];
+  /** User ID of the creator. */
+  created_by: string;
+  /** FK → AssetVersion._id — points to the most recently published version. */
+  last_version_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * MongoDB `asset_versions` collection document.
+ * `_id` is a UUID string (not an ObjectId).
+ * Each publish action creates one record; the latest version is determined by
+ * sorting on `version` descending.
+ */
+export interface AssetVersion {
+  /** UUID string — never an ObjectId. */
+  _id: string;
+  /** FK → Asset._id */
+  asset_id: string;
+  /** Monotonically increasing per asset, starting at 1. */
+  version: number;
+  /** S3/Supabase storage path, e.g. "default/assets/uuid.png". */
+  storage_path: string;
+  created_at: string;
+}
+
+// ── Studio threads ────────────────────────────────────────────────────────────
+
+export type StudioThreadType = "illustration" | "image" | "video";
+
+/**
+ * MongoDB `studio_threads` collection document.
+ * `_id` equals `thread_id` equals `asset_id` — all three are the same UUID.
+ */
+export interface StudioThread {
+  /** UUID string = assetId. */
+  _id: string;
+  /** Always equals `_id`. Used as the LangGraph / chat session key. */
+  thread_id: string;
+  /** Always equals `_id`. Used as the URL route param. */
+  asset_id: string;
+  user_id: string;
+  type: StudioThreadType;
+  prompt: string | null;
+  model: string | null;
+  /** True until the first AI reply is saved; used to trigger auto-send on page load. */
+  is_new_chat: boolean;
+  created_at: string;
+}
+
+/**
+ * A single media attachment stored inside a `studio_thread_chats` document.
+ * `storagePath` is relative to the S3/Supabase bucket root.
+ * `seed_details` is a serialized JSON description used to re-seed edits.
+ */
+export interface StudioMediaRecord {
+  storagePath: string;
+  seed_details?: string;
+}
+
+/**
+ * MongoDB `studio_thread_chats` collection document.
+ * Signed URLs are resolved at query time and not stored here.
+ */
+export interface StudioThreadChat {
+  _id: string;
+  thread_id: string;
+  role: "user" | "assistant";
+  content: string;
+  medias: StudioMediaRecord[];
+  created_at: string;
+}

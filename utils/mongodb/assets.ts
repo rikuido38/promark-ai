@@ -30,7 +30,9 @@ export interface Asset {
   _id: string;
   name: string;
   filename: string;
-  media_type: AssetMediaType;
+  /** Replaces the old `media_type` field. */
+  type: AssetMediaType;
+  thread_id?: string;
   org_id: string;
   created_by: string;
   context: {
@@ -39,8 +41,8 @@ export interface Asset {
   };
   visibility: "private" | "org" | "public";
   tags: string[];
-  /** ID of the current AssetVersion document */
-  latest_version_id?: string;
+  /** ID of the current AssetVersion document. Replaces the old `latest_version_id` field. */
+  last_version_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -49,7 +51,7 @@ const COLLECTION = "assets";
 const VERSIONS_COLLECTION = "asset_versions";
 
 export async function createAsset(
-  input: Omit<Asset, "_id" | "created_at" | "updated_at" | "tags" | "visibility" | "latest_version_id"> &
+  input: Omit<Asset, "_id" | "created_at" | "updated_at" | "tags" | "visibility" | "last_version_id"> &
     Partial<Pick<Asset, "tags" | "visibility">> & {
       storage_path: string;
       source_path?: string;
@@ -78,7 +80,7 @@ export async function createAsset(
     tags: [],
     visibility: "private",
     ...assetInput,
-    latest_version_id: versionId,
+    last_version_id: versionId,
     created_at: now,
     updated_at: now,
   };
@@ -128,7 +130,7 @@ export async function createAssetVersion(
     {
       $set: {
         filename: input.filename,
-        latest_version_id: versionId,
+        last_version_id: versionId,
         updated_at: now,
       },
     }

@@ -38,7 +38,6 @@ export function MainAssistantWrapper({
                 <AssistantChatbot
                   key={chatKey}
                   title={assistantName || "AI Assistant"}
-                  systemMessage="Hi! I can help you with your marketing campaigns. How can I assist you today?"
                   avatarUrl={avatarUrl}
                   onClose={() => setIsOpen(false)}
                   connectedTools={connectedTools}

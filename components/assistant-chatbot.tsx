@@ -4,7 +4,7 @@ import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from "re
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowUpRight, BookmarkCheck, Bookmark, ExternalLink, ImageIcon, Loader2, MoreHorizontal, Plus, Send, Sparkles, X } from "lucide-react";
+import { ArrowUpRight, Download, ExternalLink, ImageIcon, Loader2, MoreHorizontal, Plus, Send, Sparkles, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,8 +16,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ConnectedTool } from "@/types/models";
 import type { AssistantOutput, MediaItem } from "@/types/agent";
-import { saveDraft } from "@/app/draft/actions";
-import type { DraftMediaType } from "@/app/draft/actions";
 import { uploadChatAttachmentClient, type UploadAttachmentResult } from "@/app/actions/upload-attachment-client";
 import { GenerationSettingsButton } from "@/components/generation-settings-dialog";
 import type { GenerationSettings, GenerationTabKey } from "@/types/generation-settings";
@@ -51,6 +49,7 @@ export interface AssistantChatbotHandle {
 export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
   title?: string;
   systemMessage?: string;
+  showWelcomeMessage?: boolean;
   avatarUrl?: string | null;
   connectedTools?: ConnectedTool[];
   onClose?: () => void;
@@ -66,6 +65,7 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
 }>(function AssistantChatbot({
   title = "AI Assistant",
   systemMessage = "How can I help you?",
+  showWelcomeMessage = true,
   avatarUrl = null,
   connectedTools = [],
   onClose,
@@ -86,9 +86,10 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
     // When autoSendMessage is provided the chatbot starts working immediately —
     // skip the welcome message so it doesn't appear before the first response.
     if (autoSendMessage) return [];
-    const msgs: Message[] = [
-      { id: "init", role: "assistant", content: systemMessage },
-    ];
+    const msgs: Message[] = [];
+    if (showWelcomeMessage) {
+      msgs.push({ id: "init", role: "assistant", content: systemMessage });
+    }
     if (figmaTool && !figmaTool.userConnected) {
       msgs.push({
         id: "figma-prompt",
@@ -106,9 +107,10 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
   const [isTyping, setIsTyping] = useState(false);
   const [figmaConnecting, setFigmaConnecting] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
-  // filename → "saving" | "saved" | "error"
-  const [draftState, setDraftState] = useState<Record<string, "saving" | "saved" | "error">>({});
   const [previewMedia, setPreviewMedia] = useState<MediaItem | null>(null);
+  const [downloadMedia, setDownloadMedia] = useState<MediaItem | null>(null);
+  const [downloadFormat, setDownloadFormat] = useState<"png" | "svg">("png");
+  const [isDownloading, setIsDownloading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>(initialModel ?? availableModels?.[0] ?? "");
   const [attachments, setAttachments] = useState<UploadAttachmentResult[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
@@ -170,17 +172,48 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
     }
   }, [availableModels]);
 
-  const handleSaveDraft = async (media: MediaItem) => {
-    if (draftState[media.filename]) return;
-    if (!media.storagePath) return;
-    setDraftState((prev) => ({ ...prev, [media.filename]: "saving" }));
-    const mediaType = (pageKey ? tabKeyFromPageKey(pageKey) : undefined) ?? (media.type as DraftMediaType);
+  const handleDownload = async () => {
+    if (!downloadMedia) return;
+    setIsDownloading(true);
     try {
-      await saveDraft(media.storagePath, media.filename, mediaType);
-      setDraftState((prev) => ({ ...prev, [media.filename]: "saved" }));
+      const resp = await fetch(downloadMedia.signedUrl);
+      if (!resp.ok) throw new Error("Failed to fetch image");
+      const blob = await resp.blob();
+      const baseName = downloadMedia.filename.replace(/\.[^.]+$/, "");
+      if (downloadFormat === "png") {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${baseName}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const arrayBuffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        const chunkSize = 8192;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCodePoint(...Array.from(bytes.slice(i, i + chunkSize)));
+        }
+        const base64 = btoa(binary);
+        const blobUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        await new Promise<void>((resolve) => { img.onload = () => resolve(); img.src = blobUrl; });
+        URL.revokeObjectURL(blobUrl);
+        const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${img.naturalWidth}" height="${img.naturalHeight}"><image href="data:image/png;base64,${base64}" width="${img.naturalWidth}" height="${img.naturalHeight}" /></svg>`;
+        const svgBlob = new Blob([svgContent], { type: "image/svg+xml" });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        const a = document.createElement("a");
+        a.href = svgUrl;
+        a.download = `${baseName}.svg`;
+        a.click();
+        URL.revokeObjectURL(svgUrl);
+      }
+      setDownloadMedia(null);
     } catch (err) {
-      console.error("Save draft failed:", err);
-      setDraftState((prev) => ({ ...prev, [media.filename]: "error" }));
+      console.error("Download failed:", err);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -317,7 +350,6 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {msg.medias.map((media) => {
                     if (media.type === "image") {
-                      const state = draftState[media.filename];
                       return (
                         <div key={media.filename} className="relative group h-20 w-20 shrink-0">
                           <button
@@ -346,17 +378,15 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
                             <DropdownMenuTrigger className="absolute top-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity">
                               <MoreHorizontal className="h-3 w-3" />
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuContent align="end" className="w-44">
                               <DropdownMenuItem
-                                disabled={state === "saving"}
-                                onClick={() => handleSaveDraft(media)}
+                                onClick={() => {
+                                  setDownloadMedia(media);
+                                  setDownloadFormat("png");
+                                }}
                               >
-                                {state === "saved" ? (
-                                  <BookmarkCheck className="h-4 w-4 mr-2 text-green-600" />
-                                ) : (
-                                  <Bookmark className={`h-4 w-4 mr-2 ${state === "saving" ? "animate-pulse" : ""}`} />
-                                )}
-                                {state === "saved" ? "Bookmarked" : "Bookmark"}
+                                <Download className="h-4 w-4 mr-2" />
+                                Download
                               </DropdownMenuItem>
                               {onUseAsCurrent && (
                                 <DropdownMenuItem onClick={() => onUseAsCurrent(media)}>
@@ -555,6 +585,51 @@ export const AssistantChatbot = forwardRef<AssistantChatbotHandle, {
         </div>
       </div>
 
+
+    {/* Download format dialog */}
+    {downloadMedia && (
+      <Dialog open onOpenChange={() => setDownloadMedia(null)}>
+        <DialogContent className="max-w-xs" showCloseButton>
+          <DialogTitle className="text-sm font-semibold">Download image</DialogTitle>
+          <div className="flex flex-col gap-3 pt-1">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDownloadFormat("png")}
+                className={cn(
+                  "flex-1 py-2 rounded-lg border text-sm font-medium transition-colors",
+                  downloadFormat === "png"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-slate-200 text-slate-600 hover:border-slate-300",
+                )}
+              >
+                PNG
+              </button>
+              <button
+                type="button"
+                onClick={() => setDownloadFormat("svg")}
+                className={cn(
+                  "flex-1 py-2 rounded-lg border text-sm font-medium transition-colors",
+                  downloadFormat === "svg"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-slate-200 text-slate-600 hover:border-slate-300",
+                )}
+              >
+                SVG
+              </button>
+            </div>
+            <Button
+              className="w-full"
+              disabled={isDownloading}
+              onClick={() => void handleDownload()}
+            >
+              {isDownloading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
+              {isDownloading ? "Downloading…" : "Download"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )}
 
     {/* Image preview lightbox */}
     {previewMedia && (

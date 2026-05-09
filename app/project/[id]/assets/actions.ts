@@ -51,7 +51,7 @@ export async function fetchProjectAssets(
   const sharedIds = permissionDocs.map((p) => p.asset_id).filter(Boolean);
 
   const matchStage: Record<string, unknown> = {
-    media_type: mediaType,
+    type: mediaType,
     $or: [
       { "context.type": "project", "context.ref_id": projectId },
       ...(sharedIds.length > 0 ? [{ _id: { $in: sharedIds } }] : []),
@@ -71,7 +71,7 @@ export async function fetchProjectAssets(
       {
         $lookup: {
           from: COLLECTIONS.ASSET_VERSIONS,
-          localField: "latest_version_id",
+          localField: "last_version_id",
           foreignField: "_id",
           as: "version",
         },
@@ -105,7 +105,7 @@ export async function fetchProjectAssets(
       id: String(r._id),
       filename: (r.filename as string) ?? "",
       storagePath: (r.version?.storage_path as string) ?? "",
-      mediaType: (r.media_type as AssetMediaType) ?? mediaType,
+      mediaType: (r.type as AssetMediaType) ?? mediaType,
       createdAt: (r.created_at as string) ?? new Date().toISOString(),
       signedUrl: urlMap.get(r.version?.storage_path as string) ?? "",
       source: isOwned ? "project" : "shared",

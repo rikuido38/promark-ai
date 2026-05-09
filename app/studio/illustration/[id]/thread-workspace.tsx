@@ -8,19 +8,21 @@ import {
 } from "@/components/ui/resizable";
 import { AssistantChatbot, type AssistantChatbotHandle, type Message } from "@/components/assistant-chatbot";
 import { ImagePreviewPanel } from "./image-preview-panel";
-import { saveChatMessage, markNewChatDone } from "./actions";
-import type { MediaRecord } from "./actions";
+import { saveChatMessage, markNewChatDone, upsertStudioThread } from "./actions";
+import type { MediaRecord, StudioThreadChat } from "./actions";
 import type { MediaItem, AssistantOutput } from "@/types/agent";
 import type { GenerationSettings } from "@/types/generation-settings";
-import type { StudioThreadChat } from "./actions";
+import { useAIAssistant } from "@/components/ai-assistant-provider";
 
 interface ThreadWorkspaceProps {
+  assetId: string;
   threadId: string;
   initialPrompt?: string;
   initialModel?: string;
   isNewChat: boolean;
   chatHistory: StudioThreadChat[];
   initialMedias?: Array<{ filename: string; signedUrl: string; storagePath: string; seed_details?: string }>;
+  latestVersion?: { signedUrl: string; storagePath: string; version: number };
 }
 
 async function illustrationHandler(
@@ -69,12 +71,14 @@ function historyToMessages(history: StudioThreadChat[]): Message[] {
 }
 
 export function ThreadWorkspace({
+  assetId,
   threadId,
   initialPrompt,
   initialModel,
   isNewChat,
   chatHistory,
   initialMedias,
+  latestVersion,
 }: ThreadWorkspaceProps) {
   // isNewChat comes from the DB — use it only to fire the DB update.
   // For the actual auto-send decision we use chatHistory.length === 0 so
@@ -82,6 +86,7 @@ export function ThreadWorkspace({
   const isNewChatLocal = chatHistory.length === 0;
   const chatbotRef = useRef<AssistantChatbotHandle>(null);
   const [requestedPreviewUrl, setRequestedPreviewUrl] = useState<{ url: string; seq: number } | undefined>(undefined);
+  const { assistantName, avatarUrl } = useAIAssistant();
 
   // Compute the initial media list once (shared by allMedias and currentMedia init).
   const getInitialMediaList = (): MediaItem[] => {
@@ -94,7 +99,7 @@ export function ThreadWorkspace({
         seed_details: m.seed_details,
       }));
     }
-    return chatHistory.flatMap((row) =>
+    const fromHistory = chatHistory.flatMap((row) =>
       row.image_signed_urls.map((url, i) => ({
         filename: row.medias[i]?.storagePath ?? url,
         signedUrl: url,
@@ -103,6 +108,17 @@ export function ThreadWorkspace({
         seed_details: row.medias[i]?.seed_details,
       })),
     );
+    if (fromHistory.length > 0) return fromHistory;
+    // Fall back to the latest published version so the panel isn't blank on revisit.
+    if (latestVersion) {
+      return [{
+        filename: latestVersion.storagePath,
+        signedUrl: latestVersion.signedUrl,
+        type: "image" as const,
+        storagePath: latestVersion.storagePath,
+      }];
+    }
+    return [];
   };
 
   // The image currently active in the preview panel — auto-attached to every AI message.
@@ -136,6 +152,8 @@ export function ThreadWorkspace({
   ): Promise<AssistantOutput> => {
     // Strip attachment URLs from the displayed user message (they are only for the API)
     const displayMessage = message.split("\n\n__IMG_REFS__\n")[0].trim();
+    // Ensure the studio_threads record exists (handles legacy assets created before studio_threads)
+    await upsertStudioThread(assetId, "illustration");
     await saveChatMessage(threadId, "user", displayMessage);
 
     // Auto-prepend the current working image so AI always has the latest canvas as context.
@@ -151,9 +169,17 @@ export function ThreadWorkspace({
 
     const output = await illustrationHandler(messageForAI, model, settings, currentMedia?.seed_details);
 
-    // Collect structured media records from medias
+    // Collect structured media records from medias.
+    // Deduplicate by storagePath — raw.medias (with seed_details) comes first so it wins.
+    const seenPaths = new Set<string>();
     const mediaRecords: MediaRecord[] = (output.medias ?? [])
       .filter((m) => m.storagePath)
+      .filter((m) => {
+        const path = m.storagePath as string;
+        if (seenPaths.has(path)) return false;
+        seenPaths.add(path);
+        return true;
+      })
       .map((m) => ({ storagePath: m.storagePath as string, seed_details: m.seed_details }));
 
     // Strip any <img> tags the LLM may have embedded — images are shown in the right panel only
@@ -186,8 +212,9 @@ export function ThreadWorkspace({
         <div className="h-full flex flex-col overflow-hidden bg-white">
           <AssistantChatbot
             ref={chatbotRef}
-            title="Illustration Assistant"
-            systemMessage="Hi! Describe what you'd like to illustrate and I'll generate on-brand illustrations for you."
+            title={assistantName || "Illustration Assistant"}
+            avatarUrl={avatarUrl}
+            showWelcomeMessage={false}
             onSendMessage={handleSendMessage}
             availableModels={["gpt-image-2", "gpt-image-1.5"]}
             pageKey="draft-illustration"
@@ -212,7 +239,7 @@ export function ThreadWorkspace({
 
       {/* Right: Image Preview */}
       <ResizablePanel defaultSize={55} minSize={30}>
-        <ImagePreviewPanel medias={allMedias} onExportBase64={handleEditorExport} requestedUrl={requestedPreviewUrl} />
+        <ImagePreviewPanel assetId={assetId} medias={allMedias} onExportBase64={handleEditorExport} requestedUrl={requestedPreviewUrl} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );

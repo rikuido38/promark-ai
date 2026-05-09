@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles, Loader2, ChevronDown, Trash2, Check, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Sparkles, Loader2, ChevronDown, Pencil, Trash2, Check, X, Download, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchDrafts, deleteDraft, type DraftItem } from "@/app/draft/actions";
+import { AssetThumbnail } from "@/components/ui/asset-thumbnail";
+import { fetchStudioIllustrations, deleteStudioIllustration, type IllustrationItem } from "./actions";
 
 type TabState = {
-  items: DraftItem[];
+  items: IllustrationItem[];
   nextCursor: string | null;
   loadingMore: boolean;
   initialised: boolean;
@@ -44,17 +46,18 @@ function EmptyState() {
 }
 
 export function StudioIllustrationGrid() {
+  const router = useRouter();
   const [state, setState] = useState<TabState>(empty);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
-  async function handleDelete(id: string) {
-    setState((prev) => ({ ...prev, items: prev.items.filter((item) => item.id !== id) }));
+  async function handleDelete(assetId: string) {
+    setState((prev) => ({ ...prev, items: prev.items.filter((item) => item.assetId !== assetId) }));
     setConfirmId(null);
     try {
-      await deleteDraft(id);
+      await deleteStudioIllustration(assetId);
     } catch (err) {
-      console.error("deleteDraft error:", err);
-      fetchDrafts("illustration")
+      console.error("deleteStudioIllustration error:", err);
+      fetchStudioIllustrations()
         .then((result) =>
           setState({ items: result.items, nextCursor: result.nextCursor, loadingMore: false, initialised: true }),
         )
@@ -64,14 +67,14 @@ export function StudioIllustrationGrid() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchDrafts("illustration")
+    fetchStudioIllustrations()
       .then((result) => {
         if (!cancelled) {
           setState({ items: result.items, nextCursor: result.nextCursor, loadingMore: false, initialised: true });
         }
       })
       .catch((err: unknown) => {
-        console.error("fetchDrafts error:", err);
+        console.error("fetchStudioIllustrations error:", err);
         if (!cancelled) setState({ items: [], nextCursor: null, loadingMore: false, initialised: true });
       });
     return () => {
@@ -83,7 +86,7 @@ export function StudioIllustrationGrid() {
     if (!state.nextCursor || state.loadingMore) return;
     setState((prev) => ({ ...prev, loadingMore: true }));
     try {
-      const result = await fetchDrafts("illustration", state.nextCursor);
+      const result = await fetchStudioIllustrations(state.nextCursor);
       setState((prev) => ({
         items: [...prev.items, ...result.items],
         nextCursor: result.nextCursor,
@@ -91,7 +94,7 @@ export function StudioIllustrationGrid() {
         initialised: true,
       }));
     } catch (err) {
-      console.error("fetchDrafts load more error:", err);
+      console.error("fetchStudioIllustrations load more error:", err);
       setState((prev) => ({ ...prev, loadingMore: false }));
     }
   }
@@ -103,49 +106,55 @@ export function StudioIllustrationGrid() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
         {state.items.map((item) => (
-          <div
-            key={item.id}
-            className="group relative aspect-square overflow-hidden rounded-xl border bg-slate-50 shadow-sm hover:shadow-md transition-shadow"
-          >
-            <a href={item.signedUrl} target="_blank" rel="noopener noreferrer" className="block w-full h-full">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.signedUrl}
-                alt={item.filename}
-                className="w-full h-full object-cover transition-transform group-hover:scale-105"
-              />
-            </a>
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" />
-            <p className="absolute bottom-0 left-0 right-0 px-2 py-1.5 text-[10px] text-white truncate bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              {new Date(item.createdAt).toLocaleDateString()}
-            </p>
-            {confirmId === item.id ? (
-              <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
-                <button
-                  onClick={() => handleDelete(item.id)}
-                  className="h-6 px-1.5 flex items-center gap-1 rounded-md bg-red-600 text-white text-[10px] font-medium hover:bg-red-700"
-                  aria-label="Confirm delete"
-                >
-                  <Check className="h-3 w-3" /> Delete
-                </button>
-                <button
-                  onClick={() => setConfirmId(null)}
-                  className="h-6 w-6 flex items-center justify-center rounded-md bg-black/50 text-white hover:bg-black/70"
-                  aria-label="Cancel delete"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmId(item.id)}
-                className="absolute top-1.5 right-1.5 h-6 w-6 flex items-center justify-center rounded-md bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                aria-label="Delete draft"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+          <AssetThumbnail
+            key={item.assetId}
+            signedUrl={item.signedUrl}
+            alt="Illustration"
+            bottomLabel={new Date(item.createdAt).toLocaleDateString()}
+            href={`/studio/illustration/${item.assetId}`}
+            iconActions={
+              confirmId === item.assetId
+                ? [
+                    {
+                      icon: <Check className="h-3 w-3" />,
+                      label: "Delete",
+                      ariaLabel: "Confirm delete",
+                      onClick: (e) => { e.preventDefault(); void handleDelete(item.assetId); },
+                      className: "bg-red-600 hover:bg-red-700",
+                    },
+                    {
+                      icon: <X className="h-3.5 w-3.5" />,
+                      ariaLabel: "Cancel delete",
+                      onClick: (e) => { e.preventDefault(); setConfirmId(null); },
+                    },
+                  ]
+                : [
+                    {
+                      icon: <Pencil className="h-3.5 w-3.5" />,
+                      ariaLabel: "Edit illustration",
+                      onClick: (e) => { e.preventDefault(); router.push(`/studio/illustration/${item.assetId}`); },
+                    },
+                    {
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      ariaLabel: "Delete illustration",
+                      onClick: (e) => { e.preventDefault(); setConfirmId(item.assetId); },
+                      className: "hover:bg-red-600",
+                    },
+                  ]
+            }
+            dropdownActions={[
+              {
+                icon: <Download />,
+                label: "Download",
+                onClick: () => window.open(item.signedUrl, "_blank"),
+              },
+              {
+                icon: <Share2 />,
+                label: "Share",
+                onClick: () => navigator.clipboard.writeText(item.signedUrl),
+              },
+            ]}
+          />
         ))}
       </div>
 

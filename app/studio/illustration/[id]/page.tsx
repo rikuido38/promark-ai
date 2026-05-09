@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
 import { ThreadWorkspace } from "./thread-workspace";
-import { loadChatHistory, loadLastAssistantImages } from "./actions";
+import { loadChatHistory, loadLastAssistantImages, loadLatestVersion } from "./actions";
 
 export default async function StudioIllustrationThreadPage(props: {
   params: Promise<{ id: string }>;
@@ -16,12 +16,18 @@ export default async function StudioIllustrationThreadPage(props: {
   if (!user) redirect("/login");
 
   const db = await getDb();
-  const [thread, chatHistory, initialMedias] = await Promise.all([
-    db
-      .collection(COLLECTIONS.STUDIO_THREADS)
-      .findOne({ thread_id: id }, { projection: { prompt: 1, model: 1, is_new_chat: 1 } }),
-    loadChatHistory(id),
-    loadLastAssistantImages(id),
+
+  // id is the assetId (user-facing key). Resolve the internal thread_id from it.
+  const thread = await db
+    .collection(COLLECTIONS.STUDIO_THREADS)
+    .findOne({ asset_id: id }, { projection: { thread_id: 1, prompt: 1, model: 1, is_new_chat: 1 } });
+
+  const internalThreadId = (thread?.thread_id as string | undefined) ?? id;
+
+  const [chatHistory, initialMedias, latestVersion] = await Promise.all([
+    loadChatHistory(internalThreadId),
+    loadLastAssistantImages(internalThreadId),
+    loadLatestVersion(id),
   ]);
 
   return (
@@ -31,12 +37,14 @@ export default async function StudioIllustrationThreadPage(props: {
         <Header />
         <div className="flex-1 overflow-hidden border-t">
           <ThreadWorkspace
-            threadId={id}
+            assetId={id}
+            threadId={internalThreadId}
             initialPrompt={(thread?.prompt as string | undefined) ?? undefined}
             initialModel={(thread?.model as string | undefined) ?? undefined}
             isNewChat={(thread?.is_new_chat as boolean | undefined) ?? true}
             chatHistory={chatHistory}
             initialMedias={initialMedias}
+            latestVersion={latestVersion ?? undefined}
           />
         </div>
       </div>

@@ -46,7 +46,7 @@ export async function fetchUserCollectionAssets(
       {
         $lookup: {
           from: COLLECTIONS.ASSET_VERSIONS,
-          localField: "latest_version_id",
+          localField: "last_version_id",
           foreignField: "_id",
           as: "version",
         },

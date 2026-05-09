@@ -41,7 +41,7 @@ export async function fetchDrafts(
   const matchStage: Record<string, unknown> = {
     created_by: user.id,
     "context.type": "user",
-    media_type: mediaType,
+    type: mediaType,
   };
   if (cursor) {
     matchStage.created_at = { $lt: cursor };
@@ -57,7 +57,7 @@ export async function fetchDrafts(
       {
         $lookup: {
           from: COLLECTIONS.ASSET_VERSIONS,
-          localField: "latest_version_id",
+          localField: "last_version_id",
           foreignField: "_id",
           as: "version",
         },
@@ -87,7 +87,7 @@ export async function fetchDrafts(
       id: r._id?.toString() ?? "",
       filename: r.filename as string,
       storagePath,
-      mediaType: r.media_type as DraftMediaType,
+      mediaType: r.type as DraftMediaType,
       createdAt: r.created_at as string,
       signedUrl: urlMap.get(storagePath) ?? "",
     };

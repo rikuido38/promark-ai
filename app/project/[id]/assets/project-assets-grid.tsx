@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ImageIcon, Video, Loader2, ChevronDown, Sparkles, Upload, Plus } from "lucide-react";
+import { ImageIcon, Video, Loader2, ChevronDown, Sparkles, Upload, Plus, Pencil, Trash2, Check, X, Download, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,6 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import { AssetThumbnail } from "@/components/ui/asset-thumbnail";
 import { fetchProjectAssets, type AssetItem, type AssetMediaType } from "./actions";
 import { ImportAssetsDialog } from "./import-assets-dialog";
 
@@ -73,6 +74,8 @@ function AssetGrid({
   emptyDescription: string;
   onLoadMore: () => void;
 }) {
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
   if (!items.length) {
     return (
       <EmptyState
@@ -87,28 +90,55 @@ function AssetGrid({
     <div className="mt-6 space-y-4">
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
         {items.map((item) => (
-          <div
+          <AssetThumbnail
             key={item.id}
-            className="group relative aspect-square overflow-hidden rounded-xl border bg-slate-50 shadow-sm hover:shadow-md transition-shadow"
-          >
-            <a
-              href={item.signedUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full h-full"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.signedUrl}
-                alt={item.filename}
-                className="w-full h-full object-cover transition-transform group-hover:scale-105"
-              />
-            </a>
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" />
-            <p className="absolute bottom-0 left-0 right-0 px-2 py-1.5 text-[10px] text-white truncate bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              {item.filename || new Date(item.createdAt).toLocaleDateString()}
-            </p>
-          </div>
+            id={item.id}
+            signedUrl={item.signedUrl}
+            alt={item.filename}
+            bottomLabel={item.filename || new Date(item.createdAt).toLocaleDateString()}
+            iconActions={
+              confirmId === item.id
+                ? [
+                    {
+                      icon: <Check className="h-3 w-3" />,
+                      label: "Delete",
+                      ariaLabel: "Confirm delete",
+                      onClick: () => setConfirmId(null),
+                      className: "bg-red-600 hover:bg-red-700",
+                    },
+                    {
+                      icon: <X className="h-3.5 w-3.5" />,
+                      ariaLabel: "Cancel delete",
+                      onClick: () => setConfirmId(null),
+                    },
+                  ]
+                : [
+                    {
+                      icon: <Pencil className="h-3.5 w-3.5" />,
+                      ariaLabel: "Edit asset",
+                      onClick: () => {},
+                    },
+                    {
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      ariaLabel: "Delete asset",
+                      onClick: () => setConfirmId(item.id),
+                      className: "hover:bg-red-600",
+                    },
+                  ]
+            }
+            dropdownActions={[
+              {
+                icon: <Download />,
+                label: "Download",
+                onClick: () => window.open(item.signedUrl, "_blank"),
+              },
+              {
+                icon: <Share2 />,
+                label: "Share",
+                onClick: () => navigator.clipboard.writeText(item.signedUrl),
+              },
+            ]}
+          />
         ))}
       </div>
 
@@ -144,28 +174,38 @@ function SectionGrid({ title, items }: { title: string; items: AssetItem[] }) {
       </h3>
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
         {items.map((item) => (
-          <div
+          <AssetThumbnail
             key={item.id}
-            className="group relative aspect-square overflow-hidden rounded-xl border bg-slate-50 shadow-sm hover:shadow-md transition-shadow"
-          >
-            <a
-              href={item.signedUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full h-full"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.signedUrl}
-                alt={item.filename}
-                className="w-full h-full object-cover transition-transform group-hover:scale-105"
-              />
-            </a>
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" />
-            <p className="absolute bottom-0 left-0 right-0 px-2 py-1.5 text-[10px] text-white truncate bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              {item.filename || new Date(item.createdAt).toLocaleDateString()}
-            </p>
-          </div>
+            id={item.id}
+            signedUrl={item.signedUrl}
+            alt={item.filename}
+            bottomLabel={item.filename || new Date(item.createdAt).toLocaleDateString()}
+            iconActions={[
+              {
+                icon: <Pencil className="h-3.5 w-3.5" />,
+                ariaLabel: "Edit asset",
+                onClick: () => {},
+              },
+              {
+                icon: <Trash2 className="h-3.5 w-3.5" />,
+                ariaLabel: "Delete asset",
+                onClick: () => {},
+                className: "hover:bg-red-600",
+              },
+            ]}
+            dropdownActions={[
+              {
+                icon: <Download />,
+                label: "Download",
+                onClick: () => window.open(item.signedUrl, "_blank"),
+              },
+              {
+                icon: <Share2 />,
+                label: "Share",
+                onClick: () => navigator.clipboard.writeText(item.signedUrl),
+              },
+            ]}
+          />
         ))}
       </div>
     </div>
