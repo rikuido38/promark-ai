@@ -11,6 +11,7 @@
 
 import OpenAI from "openai";
 import type { ImageGenerationProvider, ImageGenerationRequest, ImageGenerationResult } from "../types";
+import { getImageGenModelConfig } from "../provider-config";
 import logger from "@/lib/logger";
 
 const ORCHESTRATION_MODEL = "gpt-5.4";
@@ -23,11 +24,10 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
   }
 
   async generate(req: ImageGenerationRequest): Promise<ImageGenerationResult> {
-    const { prompt, model, quality = "high", size, referenceImages = [], descriptionInstructions } = req;
+    const { prompt, model, quality = "high", size, referenceImages = [] } = req;
+    const modelConfig = getImageGenModelConfig(model);
 
-    const fullPrompt = descriptionInstructions ? `${prompt}\n\n${descriptionInstructions}` : prompt;
-
-    logger.debug({ promptLength: fullPrompt.length, prompt: fullPrompt }, "[OpenAIImageProvider] final prompt sent to AI");
+    const fullPrompt = prompt;
 
     const inputContent: Array<Record<string, unknown>> = [
       { type: "input_text", text: fullPrompt },
@@ -39,14 +39,14 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
 
     logger.debug(
       {
-        inputContent: inputContent.map((item, i) =>
-          item.type === "input_text"
-            ? { index: i, type: "input_text", chars: (item.text as string).length }
-            : { index: i, type: "input_image", label: referenceImages[i - 1]?.label, mediaType: referenceImages[i - 1]?.mediaType, base64Bytes: referenceImages[i - 1]?.base64.length },
-        ),
+        prompt: fullPrompt,
+        referenceImageCount: referenceImages.length,
+        referenceImageTypes: referenceImages.map((img) => img.mediaType),
       },
-      "[OpenAIImageProvider] inputContent order",
+      "[OpenAIImageProvider] inputContent",
     );
+
+    const { backgroundOption } = modelConfig;
 
     const requestPayload = {
       model: ORCHESTRATION_MODEL,
@@ -56,12 +56,11 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
           type: "image_generation",
           model,
           quality,
+          output_format: "png",
+          ...(backgroundOption === "auto" ? {} : { background: backgroundOption }),
           ...(size && size !== "auto" ? { size } : {}),
         },
       ],
-      // Force the orchestration model's text output to be valid JSON when a
-      // description is requested. Without this the model may emit plain prose.
-      ...(descriptionInstructions ? { text: { format: { type: "json_object" } } } : {}),
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,16 +73,8 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
     const imageB64: string = imageOutput?.result ?? imageOutput?.image ?? "";
     if (!imageB64) throw new Error("OpenAI Responses API returned no image data.");
 
-    // Extract text description output by the orchestration model in the same response
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const textOutput = output?.find((o: any) => o.type === "message");
-    const description: string | undefined = textOutput?.content
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ?.filter((c: any) => c.type === "output_text")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((c: any) => c.text as string)
-      .join("") || undefined;
+    const buffer = Buffer.from(imageB64, "base64");
 
-    return { buffer: Buffer.from(imageB64, "base64"), description };
+    return { buffer };
   }
 }

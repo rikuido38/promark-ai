@@ -29,7 +29,6 @@ async function illustrationHandler(
   message: string,
   model?: string,
   settings?: GenerationSettings,
-  previousImageSeedDetails?: string,
 ): Promise<AssistantOutput> {
   const attachSplit = message.split("\n\n__IMG_REFS__\n");
   const prompt = attachSplit[0].trim();
@@ -40,7 +39,7 @@ async function illustrationHandler(
   const res = await fetch("/api/generation/illustration", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, model, sampleImageUrls, settings, previousImageSeedDetails }),
+    body: JSON.stringify({ prompt, model, sampleImageUrls, settings }),
   });
 
   if (!res.ok) {
@@ -167,7 +166,7 @@ export function ThreadWorkspace({
       messageForAI = `${promptPart}\n\n__IMG_REFS__\n${refList.join("\n")}`;
     }
 
-    const output = await illustrationHandler(messageForAI, model, settings, currentMedia?.seed_details);
+    const output = await illustrationHandler(messageForAI, model, settings);
 
     // Collect structured media records from medias.
     // Deduplicate by storagePath — raw.medias (with seed_details) comes first so it wins.

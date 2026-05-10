@@ -99,13 +99,6 @@ export interface RunMainAgentOptions {
    * size, output format, compression).
    */
   generationSettings?: GenerationSettings;
-  /**
-   * Seed details from the image currently shown in the preview panel.
-   * Prepended to the MainAgent's message as [Previous illustration context] so
-   * MainAgent can extract character names and call generate_illustration correctly
-   * for edit requests. Not forwarded to subagent tools directly.
-   */
-  previousImageSeedDetails?: string;
 }
 
 export interface RunMainAgentResult {
@@ -135,7 +128,6 @@ export async function runMainAgent(
     imageModel,
     sampleImageUrls,
     generationSettings,
-    previousImageSeedDetails,
   } = options;
 
   console.log("[MainAgent] runMainAgent: request", {
@@ -175,14 +167,8 @@ export async function runMainAgent(
     checkpointer,
   });
 
-  // When editing a previously generated image, prepend its seed details so
-  // MainAgent can extract character names and pass them explicitly to the tool.
-  const previousContext = previousImageSeedDetails
-    ? `[Previous illustration context]\n${previousImageSeedDetails}\n\n[User request]\n`
-    : "";
-
   const result = await agent.invoke(
-    { messages: [new HumanMessage(`${previousContext}${userMessage}`)] },
+    { messages: [new HumanMessage(userMessage)] },
     { configurable: { thread_id: sessionId } },
   );
 

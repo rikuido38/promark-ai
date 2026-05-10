@@ -1,0 +1,15 @@
+{
+  "openai": {
+    "image-generation": {
+      "backgroundOption": "auto",
+      "models": {
+        "gpt-image-1": {
+          "backgroundOption": "transparent"
+        },
+        "gpt-image-2": {
+          "backgroundOption": "auto"
+        }
+      }
+    }
+  }
+}

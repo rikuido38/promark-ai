@@ -5,7 +5,6 @@ import { join } from "node:path";
 import Mustache from "mustache";
 import Fuse from "fuse.js";
 import sharp from "sharp";
-import { SeedDetailsSchema, SEED_DETAILS_SCHEMA_EXAMPLE } from "./seed-schema";
 import { SUPABASE_BUCKET_NAME, DEFAULT_ORG_ID } from "@/utils/constants";
 import { createStorageClient } from "@/utils/s3/storage";
 import type { BrandIllustrationContext } from "@/types/brand-context";
@@ -13,6 +12,8 @@ import type { PaletteColor } from "@/types/settings";
 import type { GenerationSettings } from "@/types/generation-settings";
 import { getBrandContext } from "@/services/brand-context";
 import { createImageProvider } from "@/lib/image-gen/factory";
+import { getImageGenModelConfig } from "@/lib/image-gen/provider-config";
+import type { BackgroundOption } from "@/lib/image-gen/provider-config";
 import logger from "@/lib/logger";
 
 // ── Prompt templates ─────────────────────────────────────────────────────────
@@ -82,30 +83,59 @@ async function downloadAsPng(url: string): Promise<Buffer | null> {
   }
 }
 
-/**
- * Chroma-keys out the pure green (#00FF00) background the AI renders onto,
- * producing a real RGBA-transparent PNG.
- *
- * Threshold: pixel is keyed when green channel dominates with comfortable
- * margin over both red and blue — wide enough to absorb minor AI colour drift
- * near the background while preserving green tones inside subjects.
- */
-async function chromaKeyGreen(input: Buffer): Promise<Buffer> {
+// The chroma colour hardcoded in the prompt — used to flatten transparent images
+// before sending them back to the model so it always sees a solid chroma background.
+const CHROMA_COLOR = { r: 159, g: 0, b: 255 }; // #9F00FF
+
+async function flattenOntoChroma(buf: Buffer): Promise<Buffer> {
+  return sharp({
+    create: {
+      width: (await sharp(buf).metadata()).width ?? 1024,
+      height: (await sharp(buf).metadata()).height ?? 1024,
+      channels: 3,
+      background: CHROMA_COLOR,
+    },
+  })
+    .composite([{ input: buf, blend: "over" }])
+    .png()
+    .toBuffer();
+}
+
+// ── Chroma-key background removal ─────────────────────────────────────────────
+
+const CHROMA_THRESHOLD = 15; // tight — only pixels very close to the sampled chroma colour
+
+async function removeChromaKeyBackground(input: Buffer): Promise<Buffer> {
   const { data, info } = await sharp(input)
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
 
-  const { width, height, channels } = info; // channels === 4
-  for (let i = 0; i < width * height; i++) {
+  const { width, height, channels } = info;
+  // Sample top-left corner as the background reference colour
+  const bgR = data[0];
+  const bgG = data[1];
+  const bgB = data[2];
+
+  // Per-pixel scan: remove every pixel within threshold of the chroma colour.
+  // Flood-fill was stopping at anti-aliased edges and leaving colour fringe.
+  // A tight threshold on a vivid chroma colour is safe for content pixels.
+  let removed = 0;
+  let maxDrift = 0;
+  const total = width * height;
+  for (let i = 0; i < total; i++) {
     const o = i * channels;
-    const r = data[o];
-    const g = data[o + 1];
-    const b = data[o + 2];
-    if (g > 180 && g > r + 30 && g > b + 30) {
-      data[o + 3] = 0;
-    }
+    const drift = Math.hypot(data[o] - bgR, data[o + 1] - bgG, data[o + 2] - bgB);
+    if (drift > CHROMA_THRESHOLD) continue;
+    if (drift > maxDrift) maxDrift = drift;
+    data[o + 3] = 0;
+    removed++;
   }
+
+  logger.debug(
+    { width, height, sampledBg: [bgR, bgG, bgB], sampledBgHex: `#${bgR.toString(16).padStart(2, "0")}${bgG.toString(16).padStart(2, "0")}${bgB.toString(16).padStart(2, "0")}`.toUpperCase(), threshold: CHROMA_THRESHOLD, removedPixels: removed, removedPct: ((removed / (width * height)) * 100).toFixed(1), maxDrift: maxDrift.toFixed(2) },
+    "[BrandIllustrationAgent] chroma-key background removal",
+  );
 
   return sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer();
 }
@@ -125,7 +155,8 @@ function buildIllustrationPrompt(
   _relevantChars: CapturedCharacter[],
   userPrompt: string,
   imageLabels: string[],
-  editContext?: string,
+  requestType: "new" | "edit",
+  backgroundOption: BackgroundOption,
 ): string {
   const fp = ill.facial_colour_palette;
 
@@ -141,9 +172,10 @@ function buildIllustrationPrompt(
     shadow_colors: fp.shadow_colors.length ? formatColors(fp.shadow_colors) : "",
     facial_feature_colors: fp.facial_feature_colors.length ? formatColors(fp.facial_feature_colors) : "",
     user_prompt: userPrompt,
+    is_edit: requestType === "edit",
+    use_transparent_bg: backgroundOption === "transparent",
     has_image_labels: imageLabels.length > 0,
     image_labels: imageLabels,
-    edit_context: editContext || null,
   };
 
   // _relevantChars reserved for future use (character-specific prompt injection)
@@ -162,6 +194,40 @@ function identifyCharactersInPrompt(
   return characters
     .filter((c) => lower.includes(c.name.toLowerCase()))
     .map((c) => c.name);
+}
+
+async function fetchGuidelineImages(
+  capturedCharacters: CapturedCharacter[],
+  userPrompt: string,
+): Promise<Array<{ base64: string; mediaType: string; charName: string; title: string }>> {
+  const results: Array<{ base64: string; mediaType: string; charName: string; title: string }> = [];
+  for (const char of capturedCharacters) {
+    const gl = bestMatchingGuideline(char.guidelines, userPrompt);
+    const glLabel = gl ? `"${gl.title}"` : "none matched";
+    logger.debug(`[BrandIllustrationAgent] guideline for "${char.name}": ${glLabel}`);
+    if (!gl?.sample_image_url) continue;
+    const buf = await downloadAsPng(gl.sample_image_url);
+    if (buf) {
+      results.push({ base64: buf.toString("base64"), mediaType: "image/png", charName: char.name, title: gl.title });
+    } else {
+      logger.debug(`[BrandIllustrationAgent] failed to download guideline image "${gl.title}" for "${char.name}"`);
+    }
+  }
+  return results;
+}
+
+async function fetchSampleImages(urls: string[]): Promise<Array<{ base64: string; mediaType: string }>> {
+  const results: Array<{ base64: string; mediaType: string }> = [];
+  for (const url of urls) {
+    const buf = await downloadAsPng(url);
+    if (buf) {
+      // Flatten transparency onto the chroma colour so the model always sees a
+      // solid chroma background and generates a new one consistently for removal.
+      const flattened = await flattenOntoChroma(buf);
+      results.push({ base64: flattened.toString("base64"), mediaType: "image/png" });
+    }
+  }
+  return results;
 }
 
 /**
@@ -238,17 +304,16 @@ export function createBrandIllustrationTool(
       request_type,
       user_prompt,
       character_names,
-      previous_seed_details,
     }: {
       request_type: "new" | "edit";
       user_prompt: string;
       character_names: string[];
-      previous_seed_details?: string;
     }) => {
       const imageModel = options?.imageModel ?? options?.generationSettings?.model ?? "gpt-image-2";
       const genSettings = options?.generationSettings;
       const preloadedSampleUrls: string[] = options?.sampleImageUrls ?? [];
       const imageProvider = createImageProvider(imageModel);
+      const modelConfig = getImageGenModelConfig(imageModel);
 
       logger.debug({ request_type, user_prompt }, "[BrandIllustrationTool] invoked");
       logger.debug({ imageModel, sampleImageUrls: preloadedSampleUrls, generationSettings: genSettings }, "[BrandIllustrationTool] options");
@@ -274,51 +339,12 @@ export function createBrandIllustrationTool(
       const capturedCharacters = await fetchCharacterData(resolvedNames, brandContext);
 
       // ── Step 4: Guideline images per character ────────────────────────────
-      const charGuidelineImages: Array<{
-        base64: string;
-        mediaType: string;
-        charName: string;
-        title: string;
-      }> = [];
-      for (const char of capturedCharacters) {
-        const gl = bestMatchingGuideline(char.guidelines, user_prompt);
-        const glLabel = gl ? `"${gl.title}"` : "none matched";
-        logger.debug(`[BrandIllustrationAgent] guideline for "${char.name}": ${glLabel}`);
-        if (!gl?.sample_image_url) continue;
-        const buf = await downloadAsPng(gl.sample_image_url);
-        if (buf) {
-          charGuidelineImages.push({
-            base64: buf.toString("base64"),
-            mediaType: "image/png",
-            charName: char.name,
-            title: gl.title,
-          });
-        } else {
-          logger.debug(`[BrandIllustrationAgent] failed to download guideline image "${gl.title}" for "${char.name}"`);
-        }
-      }
+      const charGuidelineImages = await fetchGuidelineImages(capturedCharacters, user_prompt);
 
       // ── Step 5: Sample / reference images ─────────────────────────────────
-      const sampleImages: Array<{ base64: string; mediaType: string }> = [];
-      for (const url of preloadedSampleUrls) {
-        const buf = await downloadAsPng(url);
-        if (buf) sampleImages.push({ base64: buf.toString("base64"), mediaType: "image/png" });
-      }
+      const sampleImages = await fetchSampleImages(preloadedSampleUrls);
 
-      // ── Step 6: Extract edit context ──────────────────────────────────────
-      // For edits, pull the scene description from the previous seed details so the
-      // illustration prompt can explicitly state what's already in the image.
-      let editContext: string | undefined;
-      if (request_type === "edit" && previous_seed_details) {
-        try {
-          const parsed = JSON.parse(previous_seed_details) as { scene?: { description?: string } };
-          editContext = parsed?.scene?.description ?? undefined;
-        } catch {
-          // not parseable — leave editContext undefined
-        }
-      }
-
-      // ── Step 7: Build image prompt & reference image list ─────────────────
+      // ── Step 6: Build image prompt & reference image list ─────────────────
       const ill = brandContext.illustration;
       const brand = brandContext.brand;
       const charsWithImages = capturedCharacters.filter((c) => !!c.base64);
@@ -351,7 +377,7 @@ export function createBrandIllustrationTool(
         })),
       ];
 
-      const fullPrompt = buildIllustrationPrompt(ill, brand, capturedCharacters, user_prompt, imageLabels, editContext);
+      const fullPrompt = buildIllustrationPrompt(ill, brand, capturedCharacters, user_prompt, imageLabels, request_type, modelConfig.backgroundOption);
 
       // ── Debug logging ──────────────────────────────────────────────────────
       logger.debug(
@@ -381,42 +407,28 @@ export function createBrandIllustrationTool(
         "[BrandIllustrationAgent] reference images passed to provider",
       );
 
-      // ── Step 8: Generate ───────────────────────────────────────────────────
-      const charContext =
-        capturedCharacters.length > 0
-          ? `\nCharacter names in this image: ${capturedCharacters.map((c) => c.name).join(", ")}. Use these exact names for the corresponding objects.`
-          : "";
-      const descriptionInstructions = `After generating the image, output ONLY a valid JSON object (no markdown fences, no explanation) describing exactly what you created. Follow this schema precisely:\n${SEED_DETAILS_SCHEMA_EXAMPLE}\n\nRules:\n- attributes and visual_style may each have at most 5 key/value pairs.\n- visual_style values may be a string or an array of hex colour strings.\n- Include one object entry per distinct character, animal, prop, and environment area.\n- Output ONLY valid JSON — no extra text before or after.${charContext}`;
-
-      const { buffer: imageBuffer, description: imageDescription } = await imageProvider.generate({
+      // ── Step 7: Generate ───────────────────────────────────────────────────
+      const { buffer: rawBuffer } = await imageProvider.generate({
         prompt: fullPrompt,
         model: imageModel,
         quality: genSettings?.quality ?? "high",
         size: genSettings?.size === "auto" ? undefined : genSettings?.size,
         referenceImages,
-        descriptionInstructions,
       });
 
-      // ── Step 9: Validate and store seed details ────────────────────────────
-      let capturedSeedDetails = "";
-      if (imageDescription) {
-        try {
-          const parsed = JSON.parse(imageDescription);
-          const validated = SeedDetailsSchema.safeParse(parsed);
-          capturedSeedDetails = validated.success ? JSON.stringify(validated.data) : imageDescription;
-        } catch {
-          capturedSeedDetails = imageDescription;
-        }
-      }
+      // Remove chroma-key background for all models that don't natively output transparency.
+      const imageBuffer = modelConfig.backgroundOption === "transparent"
+        ? rawBuffer
+        : await removeChromaKeyBackground(rawBuffer);
 
-      // ── Step 10: Chroma-key green background → transparent PNG and upload ─
-      const transparentPng = await chromaKeyGreen(imageBuffer);
+      // ── Step 8: Upload ─────────────────────────────────────────────────────
+      // Provider returns a transparent-background PNG ready to upload.
       const filename = `${crypto.randomUUID()}.png`;
       const storagePath = `temp/${DEFAULT_ORG_ID}/${filename}`;
       const storage = createStorageClient();
       const { error: uploadError } = await storage.storage
         .from(SUPABASE_BUCKET_NAME)
-        .upload(storagePath, transparentPng, { contentType: "image/png", upsert: false });
+        .upload(storagePath, imageBuffer, { contentType: "image/png", upsert: false });
 
       if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
 
@@ -432,7 +444,6 @@ export function createBrandIllustrationTool(
         filename,
         signedUrl: signedData.signedUrl,
         storagePath,
-        seed_details: capturedSeedDetails,
         type: "image",
       });
     },
@@ -457,14 +468,8 @@ export function createBrandIllustrationTool(
             "Identify from the current user message and conversation history — which brand characters has the user " +
             "requested, or were shown in the previous illustration? " +
             "For 'new': scan the user prompt for character names. " +
-            "For 'edit': use the characters from the previous turn (conversation history or the [Previous illustration context] section). " +
+            "For 'edit': use the characters from the previous turn (conversation history). " +
             "Leave empty only if no brand characters are involved.",
-          ),
-        previous_seed_details: z
-          .string()
-          .optional()
-          .describe(
-            "For 'edit' only: the JSON from the [Previous illustration context] section, copied verbatim. Provides scene context for the edit.",
           ),
       }),
     },
