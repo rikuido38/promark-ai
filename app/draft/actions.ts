@@ -40,7 +40,6 @@ export async function fetchDrafts(
   const db = await getDb();
   const matchStage: Record<string, unknown> = {
     created_by: user.id,
-    "context.type": "user",
     type: mediaType,
   };
   if (cursor) {
@@ -85,7 +84,7 @@ export async function fetchDrafts(
     const storagePath = (r.version?.storage_path as string) ?? "";
     return {
       id: r._id?.toString() ?? "",
-      filename: r.filename as string,
+      filename: (r.version?.filename as string) ?? "",
       storagePath,
       mediaType: r.type as DraftMediaType,
       createdAt: r.created_at as string,
@@ -142,10 +141,8 @@ export async function saveDraft(
   const asset = await createAsset({
     name: newFilename,
     filename: newFilename,
-    media_type: mediaType as AssetMediaType,
-    org_id: DEFAULT_ORG_ID,
+    type: mediaType as AssetMediaType,
     created_by: userId,
-    context: { type: "user", ref_id: userId },
     storage_path: destPath,
     source_path: storagePath,
   });
@@ -160,7 +157,7 @@ export async function deleteDraft(draftId: string): Promise<void> {
   const db = await getDb();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const asset = await (db.collection(COLLECTIONS.ASSETS) as any)
-    .findOne({ _id: draftId, created_by: user.id, "context.type": "user" });
+    .findOne({ _id: draftId, created_by: user.id });
 
   if (!asset) throw new Error("Draft not found or access denied");
 

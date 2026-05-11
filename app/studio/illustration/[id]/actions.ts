@@ -11,6 +11,19 @@ import type {
   StudioMediaRecord,
   StudioThreadChat as StudioThreadChatDoc,
 } from "@/types/models";
+import {
+  findStudioThreadByAssetId,
+  upsertStudioThreadDoc,
+  markStudioThreadChatDone,
+} from "@/repository/mongodb/models/studio-thread";
+import {
+  insertStudioChat,
+  findChatsByThreadId,
+  findLastAssistantChat,
+} from "@/repository/mongodb/models/studio-thread-chat";
+import {
+  findVersionsByAssetId,
+} from "@/repository/mongodb/models/asset-version";
 
 export type { StudioThreadType, StudioThread } from "@/types/models";
 
@@ -55,18 +68,7 @@ export async function createAssetAndThread(
     updated_at: now,
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (db.collection(COLLECTIONS.STUDIO_THREADS) as any).insertOne({
-    _id: assetId,
-    thread_id: assetId,
-    asset_id: assetId,
-    user_id: user.id,
-    type,
-    prompt: prompt ?? null,
-    model: model ?? null,
-    is_new_chat: true,
-    created_at: now,
-  });
+  await upsertStudioThreadDoc(assetId, user.id, type, prompt, model, true);
 
   return {};
 }
@@ -84,35 +86,13 @@ export async function upsertStudioThread(
 ): Promise<void> {
   const user = await getUser();
   if (!user) return;
-
-  const db = await getDb();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (db.collection(COLLECTIONS.STUDIO_THREADS) as any).updateOne(
-    { _id: assetId },
-    {
-      $setOnInsert: {
-        _id: assetId,
-        thread_id: assetId,
-        asset_id: assetId,
-        user_id: user.id,
-        type,
-        prompt: prompt ?? null,
-        model: model ?? null,
-        is_new_chat: false,
-        created_at: new Date().toISOString(),
-      },
-    },
-    { upsert: true },
-  );
+  await upsertStudioThreadDoc(assetId, user.id, type, prompt, model, false);
 }
 
 // ── Mark first trigger done (call immediately after first AI response) ────────
 
 export async function markNewChatDone(threadId: string): Promise<void> {
-  const db = await getDb();
-  await db
-    .collection(COLLECTIONS.STUDIO_THREADS)
-    .updateOne({ thread_id: threadId }, { $set: { is_new_chat: false } });
+  await markStudioThreadChatDone(threadId);
 }
 
 // ── Save a single chat turn ───────────────────────────────────────────────────
@@ -123,32 +103,18 @@ export async function saveChatMessage(
   content: string,
   mediaRecords: MediaRecord[] = [],
 ): Promise<void> {
-  const db = await getDb();
-  await db.collection(COLLECTIONS.STUDIO_THREAD_CHATS).insertOne({
-    thread_id: threadId,
-    role,
-    content,
-    medias: mediaRecords,
-    created_at: new Date().toISOString(),
-  });
+  await insertStudioChat(threadId, role, content, mediaRecords);
 }
 
 // ── Load chat history for a thread ───────────────────────────────────────────
 
-type RawMedias = MediaRecord[] | string[] | undefined;
-
 export async function loadChatHistory(threadId: string): Promise<StudioThreadChat[]> {
-  const db = await getDb();
-  const rows = await db
-    .collection(COLLECTIONS.STUDIO_THREAD_CHATS)
-    .find({ thread_id: threadId })
-    .sort({ created_at: 1 })
-    .toArray();
+  const rows = await findChatsByThreadId(threadId);
 
   if (rows.length === 0) return [];
 
   const allPaths = rows.flatMap((r) =>
-    ((r.medias as RawMedias) ?? []).map((m) =>
+    (r.medias ?? []).map((m: StudioMediaRecord | string) =>
       typeof m === "string" ? m : m.storagePath,
     ),
   );
@@ -172,14 +138,14 @@ export async function loadChatHistory(threadId: string): Promise<StudioThreadCha
     );
     return {
       id: r._id?.toString() ?? "",
-      thread_id: r.thread_id as string,
-      role: r.role as "user" | "assistant",
-      content: r.content as string,
+      thread_id: r.thread_id,
+      role: r.role,
+      content: r.content,
       medias,
       image_signed_urls: medias
         .map((m) => signedUrlMap.get(m.storagePath) ?? "")
         .filter(Boolean),
-      created_at: r.created_at as string,
+      created_at: r.created_at,
     };
   });
 }
@@ -189,33 +155,21 @@ export async function loadChatHistory(threadId: string): Promise<StudioThreadCha
 export async function loadLastAssistantImages(
   threadId: string,
 ): Promise<Array<{ filename: string; signedUrl: string; storagePath: string; seed_details?: string }>> {
-  const db = await getDb();
-  // Use find().sort().limit(1) instead of findOne() to reliably apply sort.
-  const rows = await db
-    .collection(COLLECTIONS.STUDIO_THREAD_CHATS)
-    .find({ thread_id: threadId, role: "assistant" })
-    .sort({ created_at: -1 })
-    .limit(1)
-    .project({ medias: 1 })
-    .toArray();
+  const row = await findLastAssistantChat(threadId);
 
-  const row = rows[0];
   // Support legacy rows where medias was stored as string[]
   const rawMedias = (row?.medias as MediaRecord[] | string[] | undefined) ?? [];
   const mediaRecords: MediaRecord[] = rawMedias.map((m) =>
     typeof m === "string" ? { storagePath: m } : m,
   );
   const paths = mediaRecords.map((m) => m.storagePath);
-  console.log("[loadLastAssistantImages] threadId =", threadId, "| row found =", !!row, "| paths =", paths);
 
   if (paths.length === 0) return [];
 
   const storage = createStorageClient();
-  const { data: signed, error } = await storage.storage
+  const { data: signed } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
     .createSignedUrls(paths, 3600);
-
-  console.log("[loadLastAssistantImages] signed count =", signed?.length ?? 0, "| error =", error);
 
   return (signed ?? [])
     .filter((s) => s.signedUrl && s.path)
@@ -233,22 +187,7 @@ export async function loadLastAssistantImages(
 // ── Fetch a single thread ─────────────────────────────────────────────────────
 
 export async function getStudioThread(assetId: string): Promise<StudioThread | null> {
-  const db = await getDb();
-  const row = await db
-    .collection(COLLECTIONS.STUDIO_THREADS)
-    .findOne({ asset_id: assetId });
-  if (!row) return null;
-  return {
-    _id: row._id as string,
-    thread_id: row.thread_id as string,
-    asset_id: row.asset_id as string,
-    user_id: row.user_id as string,
-    type: row.type as StudioThreadType,
-    prompt: row.prompt as string | null,
-    model: row.model as string | null,
-    is_new_chat: row.is_new_chat as boolean,
-    created_at: row.created_at as string,
-  };
+  return findStudioThreadByAssetId(assetId);
 }
 
 // ── Asset versioning ──────────────────────────────────────────────────────────
@@ -268,30 +207,19 @@ export interface AssetVersion {
 export async function loadLatestVersion(
   assetId: string,
 ): Promise<{ signedUrl: string; storagePath: string; version: number } | null> {
-  const db = await getDb();
+  // Fetch all versions sorted desc, take the first (latest)
+  const versions = await findVersionsByAssetId(assetId);
+  const latest = versions[0];
+  if (!latest) return null;
 
-  const asset = await db
-    .collection(COLLECTIONS.ASSETS)
-    .findOne({ _id: assetId }, { projection: { last_version_id: 1 } });
-
-  const versionId = asset?.last_version_id as string | undefined;
-  if (!versionId) return null;
-
-  const versionDoc = await db
-    .collection(COLLECTIONS.ASSET_VERSIONS)
-    .findOne({ _id: versionId });
-
-  if (!versionDoc) return null;
-
-  const storagePath = versionDoc.storage_path as string;
   const storage = createStorageClient();
   const { data, error } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
-    .createSignedUrl(storagePath, 3600);
+    .createSignedUrl(latest.storage_path, 3600);
 
   if (error || !data?.signedUrl) return null;
 
-  return { signedUrl: data.signedUrl, storagePath, version: versionDoc.version as number };
+  return { signedUrl: data.signedUrl, storagePath: latest.storage_path, version: latest.version };
 }
 
 /**
@@ -354,16 +282,10 @@ export async function publishNewVersion(
  * Loads all published versions for a thread's asset, ordered oldest first.
  */
 export async function loadAssetVersions(assetId: string): Promise<AssetVersion[]> {
-  const db = await getDb();
-  const rows = await db
-    .collection(COLLECTIONS.ASSET_VERSIONS)
-    .find({ asset_id: assetId })
-    .sort({ version: 1 })
-    .toArray();
-
+  const rows = await findVersionsByAssetId(assetId);
   if (rows.length === 0) return [];
 
-  const paths = rows.map((r) => r.storage_path as string);
+  const paths = rows.map((r) => r.storage_path);
   const storage = createStorageClient();
   const { data: signed } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
@@ -376,10 +298,10 @@ export async function loadAssetVersions(assetId: string): Promise<AssetVersion[]
 
   return rows
     .map((r) => ({
-      version: r.version as number,
-      storagePath: r.storage_path as string,
-      signedUrl: urlMap.get(r.storage_path as string) ?? "",
-      createdAt: r.created_at as string,
+      version: r.version,
+      storagePath: r.storage_path,
+      signedUrl: urlMap.get(r.storage_path) ?? "",
+      createdAt: r.created_at,
     }))
     .filter((v) => v.signedUrl);
 }

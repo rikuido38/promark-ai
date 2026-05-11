@@ -9,10 +9,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
+import { cookies } from "next/headers";
 
 import { getUser } from "@/utils/cognito/auth";
 import { getDb } from "@/repository/mongodb/client";
 import { signout } from "@/app/login/actions";
+import { ORG_COOKIE_NAME } from "@/hooks/use-active-org";
+import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
+import { createStorageClient } from "@/utils/s3/storage";
+import { resolveSignedUrl } from "@/lib/storage";
+import { COLLECTIONS } from "@/utils/supabase/constant";
 
 const FALLBACK_COLORS = [
   "bg-violet-600",
@@ -38,14 +44,30 @@ export async function Header() {
   let avatarUrl: string | null = null;
   let displayName = user?.name ?? user?.email?.split("@")[0] ?? "User";
 
-  if (user?.id) {
-    const db = await getDb();
-    const profile = await db
-      .collection<{ name?: string; avatar_url?: string | null }>("user_profiles")
-      .findOne({ _id: user.id }, { projection: { name: 1, avatar_url: 1 } });
-    if (profile?.name) displayName = profile.name;
-    avatarUrl = profile?.avatar_url ?? null;
-  }
+  const cookieStore = await cookies();
+  const orgId = cookieStore.get(ORG_COOKIE_NAME)?.value ?? DEFAULT_ORG_ID;
+
+  const db = await getDb();
+
+  const [profile, org] = await Promise.all([
+    user?.id
+      ? db
+          .collection<{ name?: string; avatar_url?: string | null }>("user_profiles")
+          .findOne({ _id: user.id }, { projection: { name: 1, avatar_url: 1 } })
+      : null,
+    db
+      .collection(COLLECTIONS.ORGANIZATIONS)
+      .findOne(
+        { _id: orgId } as unknown as import("mongodb").Filter<import("mongodb").Document>,
+        { projection: { name: 1, logo_url: 1 } },
+      ),
+  ]);
+
+  if (profile?.name) displayName = profile.name;
+  avatarUrl = profile?.avatar_url ?? null;
+
+  const rawLogoPath = (org?.logo_url as string | null) ?? null;
+  const orgLogoUrl = await resolveSignedUrl(createStorageClient(), rawLogoPath, SUPABASE_BUCKET_NAME) ?? null;
 
   const initials = displayName
     .split(" ")
@@ -58,7 +80,16 @@ export async function Header() {
 
   return (
     <header className="flex h-16 items-center border-b bg-background px-6">
-      <div className="flex flex-1 items-center gap-4"></div>
+      <div className="flex flex-1 items-center gap-4">
+        {orgLogoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={orgLogoUrl}
+            alt={org?.name as string ?? "Organization"}
+            style={{ height: 32, maxWidth: 120, objectFit: "contain" }}
+          />
+        )}
+      </div>
 
       <div className="flex items-center gap-4 ml-auto">
         {/* Create dropdown */}

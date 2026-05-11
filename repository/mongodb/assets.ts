@@ -12,7 +12,6 @@ import { v4 as uuidv4 } from "uuid";
 import { getDb } from "@/repository/mongodb/client";
 
 export type AssetMediaType = "image" | "video" | "illustration";
-export type AssetContextType = "user" | "project" | "campaign";
 
 export interface AssetVersion {
   _id: string;
@@ -29,17 +28,10 @@ export interface AssetVersion {
 export interface Asset {
   _id: string;
   name: string;
-  filename: string;
   /** Replaces the old `media_type` field. */
   type: AssetMediaType;
   thread_id?: string;
-  org_id: string;
   created_by: string;
-  context: {
-    type: AssetContextType;
-    ref_id: string | null;
-  };
-  visibility: "private" | "org" | "public";
   tags: string[];
   /** ID of the current AssetVersion document. Replaces the old `latest_version_id` field. */
   last_version_id?: string;
@@ -51,8 +43,9 @@ const COLLECTION = "assets";
 const VERSIONS_COLLECTION = "asset_versions";
 
 export async function createAsset(
-  input: Omit<Asset, "_id" | "created_at" | "updated_at" | "tags" | "visibility" | "last_version_id"> &
-    Partial<Pick<Asset, "tags" | "visibility">> & {
+  input: Omit<Asset, "_id" | "created_at" | "updated_at" | "tags" | "last_version_id"> &
+    Partial<Pick<Asset, "tags">> & {
+      filename: string;
       storage_path: string;
       source_path?: string;
     }
@@ -62,13 +55,13 @@ export async function createAsset(
   const assetId = uuidv4();
   const versionId = uuidv4();
 
-  const { storage_path, source_path, ...assetInput } = input;
+  const { storage_path, source_path, filename, ...assetInput } = input;
 
   const version: AssetVersion = {
     _id: versionId,
     asset_id: assetId,
     version: 1,
-    filename: assetInput.filename,
+    filename,
     storage_path,
     source_path,
     created_by: assetInput.created_by,
@@ -78,7 +71,6 @@ export async function createAsset(
   const asset: Asset = {
     _id: assetId,
     tags: [],
-    visibility: "private",
     ...assetInput,
     last_version_id: versionId,
     created_at: now,
@@ -129,7 +121,6 @@ export async function createAssetVersion(
     { _id: assetId },
     {
       $set: {
-        filename: input.filename,
         last_version_id: versionId,
         updated_at: now,
       },
@@ -154,32 +145,22 @@ export async function getAssetById(assetId: string): Promise<Asset | null> {
   return db.collection<Asset>(COLLECTION).findOne({ _id: assetId });
 }
 
-/** Cursor-paginated asset list scoped to a context (user / project / campaign). */
+/** Cursor-paginated asset list filtered by creator and optional media type. */
 export async function listAssets({
-  orgId,
-  contextType,
-  refId,
   createdBy,
   mediaType,
   cursor,
   limit = 10,
 }: {
-  orgId: string;
-  contextType: AssetContextType;
-  refId?: string | null;
   createdBy?: string;
   mediaType?: AssetMediaType;
   cursor?: string;
   limit?: number;
 }): Promise<{ items: Asset[]; nextCursor: string | null }> {
   const db = await getDb();
-  const filter: Record<string, unknown> = {
-    org_id: orgId,
-    "context.type": contextType,
-  };
-  if (refId !== undefined) filter["context.ref_id"] = refId ?? null;
+  const filter: Record<string, unknown> = {};
   if (createdBy) filter.created_by = createdBy;
-  if (mediaType) filter.media_type = mediaType;
+  if (mediaType) filter.type = mediaType;
   if (cursor) filter.created_at = { $lt: cursor };
 
   const rows = await db

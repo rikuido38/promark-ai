@@ -33,7 +33,6 @@ export async function fetchUserCollectionAssets(
   const db = await getDb();
   const match: Record<string, unknown> = {
     created_by: user.id,
-    "context.type": "user",
   };
   if (cursor) match.created_at = { $lt: cursor };
 
@@ -74,8 +73,8 @@ export async function fetchUserCollectionAssets(
 
   const items: CollectionAssetItem[] = rows.map((r) => ({
     id: String(r._id),
-    filename: (r.filename as string) ?? "",
-    mediaType: (r.media_type as CollectionAssetItem["mediaType"]) ?? "image",
+    filename: (r.version?.filename as string) ?? "",
+    mediaType: (r.type as CollectionAssetItem["mediaType"]) ?? "image",
     createdAt: (r.created_at as string) ?? new Date().toISOString(),
     signedUrl: urlMap.get(r.version?.storage_path as string) ?? "",
   }));
@@ -159,10 +158,8 @@ export async function uploadFilesToProject(
     const asset = await createAsset({
       name: file.name,
       filename: file.name,
-      media_type: mediaType,
-      org_id: DEFAULT_ORG_ID,
+      type: mediaType,
       created_by: user.id,
-      context: { type: "project", ref_id: projectId },
       storage_path: storagePath,
     });
 

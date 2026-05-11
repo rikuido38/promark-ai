@@ -5,6 +5,7 @@ import { getDb } from "@/repository/mongodb/client";
 import { createStorageClient } from "@/utils/s3/storage";
 import { SUPABASE_BUCKET_NAME } from "@/utils/constants";
 import { COLLECTIONS } from "@/utils/supabase/constant";
+import { findGrantsBySubject } from "@/repository/mongodb/models/asset-permission";
 
 const PAGE_SIZE = 12;
 
@@ -26,10 +27,7 @@ export type FetchProjectAssetsResult = {
 };
 
 /**
- * Cursor-paginated fetch of assets that belong to or are shared with a project.
- * Includes:
- *  - Assets with context.type === "project" and context.id === projectId
- *  - Assets referenced by asset_permissions with resource_id === projectId
+ * Cursor-paginated fetch of assets shared with a project via asset_permissions.
  */
 export async function fetchProjectAssets(
   projectId: string,
@@ -39,25 +37,16 @@ export async function fetchProjectAssets(
   const user = await getUser();
   if (!user) throw new Error("Unauthorized");
 
+  const permissionDocs = await findGrantsBySubject("project", projectId);
+  const sharedIds = permissionDocs.map((p) => p.asset_id).filter(Boolean);
+  if (!sharedIds.length) return { items: [], nextCursor: null };
+
   const db = await getDb();
 
-  // Collect shared asset IDs from asset_permissions
-  const permissionDocs = await db
-    .collection(COLLECTIONS.ASSET_PERMISSIONS)
-    .find({ resource_id: projectId, resource_type: "project" })
-    .project({ asset_id: 1 })
-    .toArray();
-
-  const sharedIds = permissionDocs.map((p) => p.asset_id).filter(Boolean);
-
   const matchStage: Record<string, unknown> = {
+    _id: { $in: sharedIds },
     type: mediaType,
-    $or: [
-      { "context.type": "project", "context.ref_id": projectId },
-      ...(sharedIds.length > 0 ? [{ _id: { $in: sharedIds } }] : []),
-    ],
   };
-
   if (cursor) {
     matchStage.created_at = { $lt: cursor };
   }
@@ -98,17 +87,14 @@ export async function fetchProjectAssets(
   );
 
   const items: AssetItem[] = rows.map((r) => {
-    const ctx = r.context as { type?: string; ref_id?: string } | undefined;
-    const isOwned =
-      ctx?.type === "project" && String(ctx?.ref_id) === projectId;
     return {
       id: String(r._id),
-      filename: (r.filename as string) ?? "",
+      filename: (r.version?.filename as string) ?? "",
       storagePath: (r.version?.storage_path as string) ?? "",
       mediaType: (r.type as AssetMediaType) ?? mediaType,
       createdAt: (r.created_at as string) ?? new Date().toISOString(),
       signedUrl: urlMap.get(r.version?.storage_path as string) ?? "",
-      source: isOwned ? "project" : "shared",
+      source: "shared",
     };
   });
 
