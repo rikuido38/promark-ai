@@ -5,7 +5,7 @@ import { COLLECTIONS } from "@/utils/supabase/constant";
 import { revalidatePath } from "next/cache";
 import type { OrgIntegrationCredentials, ConnectedTool } from "@/types/models";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 
 export async function getIntegrations() {
@@ -85,7 +85,7 @@ export async function toggleUserIntegration(
       .deleteOne({ user_id: user.id, integration_id: integrationId });
   }
 
-  revalidatePath("/settings/integrations");
+  revalidatePath("/orgs/settings/integrations");
   return { success: true };
 }
 
@@ -116,7 +116,7 @@ export async function toggleOrgIntegration(
       .deleteOne({ org_id: DEFAULT_ORG_ID, integration_id: integrationId });
   }
 
-  revalidatePath("/settings/integrations");
+  revalidatePath("/orgs/settings/integrations");
   return { success: true };
 }
 
@@ -142,7 +142,7 @@ export async function updateOrgIntegrationCredentials(
     { upsert: true },
   );
 
-  revalidatePath("/settings/integrations");
+  revalidatePath("/orgs/settings/integrations");
   return { success: true };
 }
 
@@ -206,5 +206,5 @@ export async function getOrgIntegrationCredentials(
       { projection: { credentials: 1 } },
     );
 
-  return (doc?.credentials as OrgIntegrationCredentials | null) ?? null;
+  return doc?.credentials as OrgIntegrationCredentials ?? null;
 }

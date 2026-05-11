@@ -9,7 +9,7 @@
  * `latest_version_id`. File paths and version numbers live exclusively in `asset_versions`.
  */
 import { v4 as uuidv4 } from "uuid";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 export type AssetMediaType = "image" | "video" | "illustration";
 export type AssetContextType = "user" | "project" | "campaign";

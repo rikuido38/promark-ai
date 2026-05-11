@@ -3,8 +3,9 @@ import { Public_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AIAssistantProvider } from "@/components/ai-assistant-provider";
+import { OrgInitializer } from "@/components/org-initializer";
 import { getOrganization } from "./brand/actions";
-import { getConnectedUserTools } from "./settings/integrations/actions";
+import { getConnectedUserTools } from "./orgs/settings/integrations/actions";
 
 const publicSans = Public_Sans({
   variable: "--font-public-sans",
@@ -41,6 +42,7 @@ export default async function RootLayout({
           avatarUrl={org?.avatar_url}
           connectedTools={connectedTools}
         >
+          <OrgInitializer />
           {children}
         </AIAssistantProvider>
         <Toaster />

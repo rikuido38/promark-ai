@@ -5,7 +5,7 @@ import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 export default async function ProjectPage(props: {
   params: Promise<{ id: string }>;

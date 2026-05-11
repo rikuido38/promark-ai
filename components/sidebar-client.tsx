@@ -15,6 +15,7 @@ import {
   FolderOpen,
   FolderKanban,
   Sparkles,
+  Building2,
 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
@@ -39,15 +40,16 @@ const NAV_LINKS = [
 ];
 
 const SETTINGS_LINKS = [
-  { href: "/settings/ai-assistant", icon: Settings, label: "AI Assistant" },
-  { href: "/settings/integrations", icon: Blocks, label: "Integrations" },
+  { href: "/orgs/settings/general", icon: Building2, label: "General" },
+  { href: "/orgs/settings/ai-assistant", icon: Settings, label: "AI Assistant" },
+  { href: "/orgs/settings/integrations", icon: Blocks, label: "Integrations" },
 ];
 
 const CREATE_LINKS = [
   { href: "/studio/illustration", icon: Sparkles, label: "Illustration" },
 ];
 
-export function SidebarClient({ recentProjects }: { recentProjects: Project[] }) {
+export function SidebarClient({ recentProjects, isOwner }: { recentProjects: Project[]; isOwner: boolean }) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -174,7 +176,8 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
             </div>
           </div>
 
-          {/* Brand */}
+          {/* Brand — owner only */}
+          {isOwner && (
           <div className={cn("px-3 pt-4")}>
             {!collapsed && (
               <h2 className="mb-2 px-4 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
@@ -208,6 +211,7 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
               )}
             </div>
           </div>
+          )}
 
           {/* Create — hidden for now */}
 
@@ -246,7 +250,8 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
             </div>
           </div>
 
-          {/* Settings */}
+          {/* Settings — owner only */}
+          {isOwner && (
           <div className={cn("px-3 pt-4 border-t")}>
             {!collapsed && (
               <h2 className="mb-2 px-4 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
@@ -280,6 +285,7 @@ export function SidebarClient({ recentProjects }: { recentProjects: Project[] })
               )}
             </div>
           </div>
+          )}
         </div>
 
         {/* Toggle Button */}

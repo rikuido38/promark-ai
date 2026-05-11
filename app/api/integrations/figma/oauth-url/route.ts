@@ -4,7 +4,7 @@ import { DEFAULT_ORG_ID } from "@/utils/constants";
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 export async function GET(request: Request) {
   const user = await getUser();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 
 export async function GET(req: NextRequest) {

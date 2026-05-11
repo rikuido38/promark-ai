@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { assignRole } from "@/lib/permissions/enforcer";
 import type { UserProfile, ProjectRole } from "@/types/models";

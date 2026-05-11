@@ -1,7 +1,7 @@
 "use server";
 
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { createStorageClient } from "@/utils/s3/storage";
 import { revalidatePath } from "next/cache";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
@@ -32,7 +32,7 @@ export async function saveAssistantName(name: string, avatar_url: string | null)
     throw new Error("Failed to save assistant settings");
   }
 
-  revalidatePath("/settings/ai-assistant");
+  revalidatePath("/orgs/settings/ai-assistant");
   return { success: true };
 }
 
@@ -72,7 +72,7 @@ export async function uploadAvatarToStorage(formData: FormData): Promise<string>
 
   const { error } = await storage.storage
     .from(SUPABASE_BUCKET_NAME)
-    .upload(filePath, file, { upsert: true });
+    .upload(filePath, file, { contentType: file.type || "application/octet-stream", upsert: true });
 
   if (error) {
     console.error("Upload error", error);

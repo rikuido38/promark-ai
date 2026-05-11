@@ -3,7 +3,7 @@ dotenvConfig({ path: ".env.local", override: true });
 
 import { NextRequest, NextResponse } from "next/server";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { runMainAgent } from "@/lib/agents/MainAgent";

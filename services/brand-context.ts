@@ -7,7 +7,7 @@ import {
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { resolveSignedUrl } from "@/lib/storage";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { createStorageClient } from "@/utils/s3/storage";
 
 // ── Settings ──────────────────────────────────────────────────────────────────

@@ -1,11 +1,11 @@
 "use server";
 
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { createStorageClient } from "@/utils/s3/storage";
 import { DEFAULT_ORG_ID, SUPABASE_BUCKET_NAME } from "@/utils/constants";
 import { COLLECTIONS } from "@/utils/supabase/constant";
-import { createAsset, deleteAsset, type AssetMediaType } from "@/utils/mongodb/assets";
+import { createAsset, deleteAsset, type AssetMediaType } from "@/repository/mongodb/assets";
 
 const PAGE_SIZE = 10;
 

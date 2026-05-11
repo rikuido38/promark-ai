@@ -4,7 +4,7 @@ import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { ProjectAssetsGrid } from "./project-assets-grid";
 import { ImageIcon } from "lucide-react";
 

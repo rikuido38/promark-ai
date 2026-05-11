@@ -7,14 +7,14 @@
  *   editor  — read + write
  *   viewer  — read only
  *
- * Domain format:
+ * Domain format (the "domain" field in model.conf covers both orgs and projects):
  *   org:ORG_ID      e.g.  org:default
  *   project:PROJ_ID e.g.  project:4f386161-...
  */
 import { newEnforcer, Enforcer } from "casbin";
 import path from "node:path";
 import { MongoAdapter } from "./adapter";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 type AssetAction = "read" | "write";
 type AssetRole = "owner" | "editor" | "viewer";

@@ -3,7 +3,7 @@ import { COLLECTIONS } from "@/utils/supabase/constant";
 import { DEFAULT_ORG_ID } from "@/utils/constants";
 import { cookies } from "next/headers";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -19,13 +19,13 @@ export async function GET(request: Request) {
 
   if (oauthError) {
     return NextResponse.redirect(
-      `${origin}/settings/integrations?error=figma_auth_denied`,
+      `${origin}/orgs/settings/integrations?error=figma_auth_denied`,
     );
   }
 
   if (!code || !state || !storedState || state !== storedState) {
     return NextResponse.redirect(
-      `${origin}/settings/integrations?error=figma_invalid_state`,
+      `${origin}/orgs/settings/integrations?error=figma_invalid_state`,
     );
   }
 
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
 
   if (!integration) {
     return NextResponse.redirect(
-      `${origin}/settings/integrations?error=figma_not_found`,
+      `${origin}/orgs/settings/integrations?error=figma_not_found`,
     );
   }
 
@@ -53,7 +53,7 @@ export async function GET(request: Request) {
   const creds = orgIntegration?.credentials as Record<string, unknown> | null;
   if (!creds?.client_id || !creds?.client_secret) {
     return NextResponse.redirect(
-      `${origin}/settings/integrations?error=figma_credentials_missing`,
+      `${origin}/orgs/settings/integrations?error=figma_credentials_missing`,
     );
   }
 
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
   if (!tokenRes.ok) {
     console.error("Figma token exchange failed:", await tokenRes.text());
     return NextResponse.redirect(
-      `${origin}/settings/integrations?error=figma_token_exchange_failed`,
+      `${origin}/orgs/settings/integrations?error=figma_token_exchange_failed`,
     );
   }
 
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
   } catch (err) {
     console.error("Failed to store Figma credentials:", err);
     return NextResponse.redirect(
-      `${origin}/settings/integrations?error=figma_store_failed`,
+      `${origin}/orgs/settings/integrations?error=figma_store_failed`,
     );
   }
 

@@ -5,7 +5,7 @@
  */
 import { Helper, Model, FilteredAdapter, Filter } from "casbin";
 import { Db, Collection } from "mongodb";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 const COLLECTION = "casbin_rule";
 

@@ -6,7 +6,7 @@ import CampaignWorkspace from "./campaign-workspace";
 import { getOrganization } from "@/app/brand/actions";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 
 export default async function CampaignPage(props: {
   params: Promise<{ id: string }>;

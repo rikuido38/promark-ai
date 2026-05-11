@@ -1,5 +1,5 @@
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { redirect } from "next/navigation";
 import { Header } from "@/components/header";

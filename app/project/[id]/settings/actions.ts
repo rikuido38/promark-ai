@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import type { ProjectRole } from "@/types/models";
 

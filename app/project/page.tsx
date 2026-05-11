@@ -4,7 +4,7 @@ import { Sidebar } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { MainAssistantWrapper } from "@/components/main-assistant-wrapper";
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { COLLECTIONS } from "@/utils/supabase/constant";
 import { FolderKanban, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { saveAssistantName, uploadAvatarToStorage } from "../actions";
+import { saveAssistantName, uploadAvatarToStorage } from "./actions";
 import { AvatarDropzone } from "@/components/ui/avatar-dropzone";
 
 export function AssistantForm({

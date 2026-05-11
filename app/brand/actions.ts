@@ -1,7 +1,7 @@
 "use server";
 
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { createStorageClient } from "@/utils/s3/storage";
 import { BrandVisualSettings, IllustrationSettings } from "@/types/settings";
 import { Media, Organization } from "@/types/models";

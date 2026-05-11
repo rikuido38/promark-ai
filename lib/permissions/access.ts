@@ -24,7 +24,7 @@
  *   Assets with context.type "user" can only be shared to projects, never
  *   directly to other individual users.
  */
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { checkRolePermission } from "./enforcer";
 
 export type AssetAction = "read" | "write";

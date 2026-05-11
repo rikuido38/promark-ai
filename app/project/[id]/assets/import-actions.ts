@@ -1,11 +1,11 @@
 "use server";
 
 import { getUser } from "@/utils/cognito/auth";
-import { getDb } from "@/utils/mongodb/client";
+import { getDb } from "@/repository/mongodb/client";
 import { createStorageClient } from "@/utils/s3/storage";
 import { SUPABASE_BUCKET_NAME, DEFAULT_ORG_ID } from "@/utils/constants";
 import { COLLECTIONS } from "@/utils/supabase/constant";
-import { createAsset } from "@/utils/mongodb/assets";
+import { createAsset } from "@/repository/mongodb/assets";
 import { randomUUID } from "node:crypto";
 
 const PAGE_SIZE = 18;
